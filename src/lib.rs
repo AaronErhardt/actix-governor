@@ -1,4 +1,12 @@
-//! A middleware for [actix-web](https://github.com/actix/actix-web) that provides rate-limiting backed by [governor](https://github.com/antifuchs/governor).
+//! An middleware for [actix-web](https://github.com/actix/actix-web) that provides
+//! rate-limiting backed by [governor](https://github.com/antifuchs/governor).
+//!
+//! # Features:
+//!
+//! + Simple to use
+//! + High performance
+//! + Robust yet flexible API
+//! + Actively maintained as part of the [Triox-Poject](https://github.com/AaronErhardt/Triox)
 //!
 //! # How does it work?
 //!
