@@ -60,6 +60,34 @@
 //!     .await
 //! }
 //! ```
+//!
+//! # Configuration presets
+//!
+//! Instead of using the configuration builder you can use predefined presets.
+//!
+//! + [`GovernorConfig::default()`]: The default configuration which is suitable for most services.
+//! Allows bursts with up to eight requests and replenishes one element after 500ms.
+//!
+//! + [`GovernorConfig::secure()`]: A default configuration for security related services.
+//! Allows bursts with up to two requests and replenishes one element after four seconds.
+//!
+//! For example the secure configuration can be used as a short version of this code:
+//!
+//! ```rust
+//! let config = GovernorConfigBuilder::default()
+//!      .per_second(4)
+//!      .burst_size(2)
+//!      .finish()
+//!      .unwrap();
+//! ```
+//!
+//! # Common pitfalls
+//!
+//! Do not construct the same configuration multiple times, unless explicitly wanted!
+//! This will create an independent rate limiter for each configuration!
+//!
+//! Instead pass the same configuration reference into [`Governor::new()`],
+//! like it is described in the example.
 
 #[cfg(test)]
 mod tests;
@@ -113,7 +141,7 @@ pub struct GovernorConfigBuilder {
 
 impl Default for GovernorConfigBuilder {
     /// The default configuration which is suitable for most services.
-    /// Allows burst with up to 8 requests and replenishes one element after 500ms.
+    /// Allows burst with up to eight requests and replenishes one element after 500ms.
     /// The values can be modified by calling other methods on this struct.
     fn default() -> Self {
         GovernorConfigBuilder {
@@ -186,7 +214,7 @@ pub struct GovernorConfig {
 
 impl Default for GovernorConfig {
     /// The default configuration which is suitable for most services.
-    /// Allows bursts with up to 8 requests and replenishes one element after 500ms.
+    /// Allows bursts with up to eight requests and replenishes one element after 500ms.
     fn default() -> Self {
         GovernorConfigBuilder {
             period: DEFAULT_PERIOD,
@@ -198,7 +226,7 @@ impl Default for GovernorConfig {
 }
 
 impl GovernorConfig {
-    /// A default configuration for security related requests.
+    /// A default configuration for security related services.
     /// Allows bursts with up to two requests and replenishes one element after four seconds.
     ///
     /// This prevents brute-forcing passwords or security tokens
