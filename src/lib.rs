@@ -6,7 +6,7 @@
 //! + Simple to use
 //! + High performance
 //! + Robust yet flexible API
-//! + Actively maintained as part of the [Triox-Poject](https://github.com/AaronErhardt/Triox)
+//! + Actively maintained as part of the [Triox-Project](https://github.com/AaronErhardt/Triox)
 //!
 //! # How does it work?
 //!
@@ -141,15 +141,15 @@ impl GovernorConfigBuilder {
     /// Set the interval after which one element of the quota is replenished in milliseconds.
     ///
     /// **The interval must not be zero.**
-    pub fn per_millisecond(&mut self, millis: u64) -> &mut Self {
-        self.period = Duration::from_millis(millis);
+    pub fn per_millisecond(&mut self, milliseconds: u64) -> &mut Self {
+        self.period = Duration::from_millis(milliseconds);
         self
     }
     /// Set the interval after which one element of the quota is replenished in nanoseconds.
     ///
     /// **The interval must not be zero.**
-    pub fn per_nanosecond(&mut self, nanos: u64) -> &mut Self {
-        self.period = Duration::from_nanos(nanos);
+    pub fn per_nanosecond(&mut self, nanoseconds: u64) -> &mut Self {
+        self.period = Duration::from_nanos(nanoseconds);
         self
     }
     /// Set quota size that defines how many requests can occur
@@ -186,7 +186,7 @@ pub struct GovernorConfig {
 
 impl Default for GovernorConfig {
     /// The default configuration which is suitable for most services.
-    /// Allows burst with up to 8 requests and replenishes one element after 500ms.
+    /// Allows bursts with up to 8 requests and replenishes one element after 500ms.
     fn default() -> Self {
         GovernorConfigBuilder {
             period: DEFAULT_PERIOD,
