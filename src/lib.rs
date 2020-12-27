@@ -199,13 +199,13 @@ impl Default for GovernorConfig {
 
 impl GovernorConfig {
     /// A default configuration for security related requests.
-    /// Allows burst with up to 2 requests and replenishes one element after 3s.
+    /// Allows bursts with up to two requests and replenishes one element after four seconds.
     ///
     /// This prevents brute-forcing passwords or security tokens
     /// yet allows to quickly retype a wrong password once before the quota is exceeded.
     pub fn secure() -> Self {
         GovernorConfigBuilder {
-            period: Duration::from_secs(3),
+            period: Duration::from_secs(4),
             burst_size: 2,
         }
         .finish()
