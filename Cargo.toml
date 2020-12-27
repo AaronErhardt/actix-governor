@@ -1,6 +1,6 @@
 [package]
 name = "actix-governor"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Aaron Erhardt <aaron.erhardt@t-online.de>"]
 edition = "2018"
 description = "A rate limiter for actix-web based on the governor crate"
