@@ -1,3 +1,5 @@
+[![Docs](https://docs.rs/actix-governor/badge.svg)](https://docs.rs/actix-governor/) [![crates.io](https://img.shields.io/crates/v/actix-governor.svg)](https://crates.io/crates/actix-governor)
+
 # Actix Governor
 
 An middleware for [actix-web](https://github.com/actix/actix-web) that provides
