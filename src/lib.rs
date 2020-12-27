@@ -1,3 +1,58 @@
+//! A middleware for [actix-web](https://github.com/actix/actix-web) that provides rate-limiting backed by [governor](https://github.com/antifuchs/governor).
+//!
+//! # How does it work?
+//!
+//! Each governor middleware has a configuration that stores a quota.
+//! The quota specifies how many requests can be send from a IP address
+//! before the middleware starts blocking further requests.
+//!
+//! For example if the quota allowed ten requests a client could send a burst of
+//! ten requests in short time before the middleware starts blocking.
+//!
+//! Once at least one element of the quota was used the elements of the quota
+//! will be replenished after a specified period.
+//!
+//! For example if this period was 2 seconds and the quota was empty
+//! it would take 2 seconds to replenish one element of the quota.
+//! This means you could send one request every two seconds on average.
+//!
+//! If there was a quota that allowed ten requests with the same period
+//! the client could again send a burst of ten requests and then had to wait
+//! two seconds before sending further requests or 20 seconds before the full
+//! quota would be replenished an he could send another burst.
+//!
+//! # Example
+//! ```rust,no_run
+//! use actix_governor::{Governor, GovernorConfigBuilder};
+//! use actix_web::{web, App, HttpServer, Responder};
+//!
+//! async fn index() -> impl Responder {
+//!     "Hello world!"
+//! }
+//!
+//! #[actix_web::main]
+//! async fn main() -> std::io::Result<()> {
+//!     // Allow bursts with up to five requests per IP address
+//!     // and replenishes one element every two seconds
+//!     let governor_conf = GovernorConfigBuilder::default()
+//!         .per_second(2)
+//!         .burst_size(5)
+//!         .finish()
+//!         .unwrap();
+//!
+//!     HttpServer::new(move || {
+//!         App::new()
+//!             // Enable Governor middleware
+//!             .wrap(Governor::new(&governor_conf))
+//!             // Route hello world service
+//!             .route("/", web::get().to(index))
+//!    })
+//!     .bind("127.0.0.1:8080")?
+//!     .run()
+//!     .await
+//! }
+//! ```
+
 #[cfg(test)]
 mod tests;
 
@@ -23,71 +78,141 @@ use actix_web::{dev::ServiceRequest, dev::ServiceResponse, error, Error};
 use futures::future::{ok, Ready};
 use futures::Future;
 
-const DEFAULT_DURATION: Duration = Duration::from_secs(10);
-const DEFAULT_QUOTA_SIZE: Option<NonZeroU32> = NonZeroU32::new(10);
+const DEFAULT_PERIOD: Duration = Duration::from_millis(500);
+const DEFAULT_BURST_SIZE: u32 = 8;
 
+/// Helper struct for building a configuration for the governor middleware
+///
+/// # Example
+///
+/// Create a configuration with a quota of ten requests per IP address
+/// that replenishes one element every minute.
+///
+/// ```rust
+/// use actix_governor::GovernorConfigBuilder;
+///
+/// let config = GovernorConfigBuilder::default()
+///     .per_second(60)
+///     .burst_size(10)
+///     .finish()
+///     .unwrap();
+/// ```
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct GovernorConfigBuilder {
-    pub quota_duration: Duration,
-    pub quota_size: NonZeroU32,
+    period: Duration,
+    burst_size: u32,
 }
 
 impl Default for GovernorConfigBuilder {
+    /// The default configuration which is suitable for most services.
+    /// Allows burst with up to 8 requests and replenishes one element after 500ms.
+    /// The values can be modified by calling other methods on this struct.
     fn default() -> Self {
         GovernorConfigBuilder {
-            quota_duration: DEFAULT_DURATION,
-            quota_size: DEFAULT_QUOTA_SIZE.unwrap(),
+            period: DEFAULT_PERIOD,
+            burst_size: DEFAULT_BURST_SIZE,
         }
     }
 }
 
 impl GovernorConfigBuilder {
-    pub fn with_duration(self, duration: Duration) -> Self {
-        GovernorConfigBuilder {
-            quota_duration: duration,
-            quota_size: self.quota_size,
-        }
+    /// Set the interval after which one element of the quota is replenished.
+    ///
+    /// **The interval must not be zero.**
+    pub fn period(&mut self, duration: Duration) -> &mut Self {
+        self.period = duration;
+        self
     }
-    pub fn with_duration_in_secs(self, seconds: u64) -> Self {
-        GovernorConfigBuilder {
-            quota_duration: Duration::from_secs(seconds),
-            quota_size: self.quota_size,
-        }
+    /// Set the interval after which one element of the quota is replenished in seconds.
+    ///
+    /// **The interval must not be zero.**
+    pub fn per_second(&mut self, seconds: u64) -> &mut Self {
+        self.period = Duration::from_secs(seconds);
+        self
     }
-    pub fn with_duration_in_millis(self, millis: u64) -> Self {
-        GovernorConfigBuilder {
-            quota_duration: Duration::from_millis(millis),
-            quota_size: self.quota_size,
-        }
+    /// Set the interval after which one element of the quota is replenished in milliseconds.
+    ///
+    /// **The interval must not be zero.**
+    pub fn per_millisecond(&mut self, millis: u64) -> &mut Self {
+        self.period = Duration::from_millis(millis);
+        self
     }
-    pub fn with_size(self, size: NonZeroU32) -> Self {
-        GovernorConfigBuilder {
-            quota_duration: self.quota_duration,
-            quota_size: size,
-        }
+    /// Set the interval after which one element of the quota is replenished in nanoseconds.
+    ///
+    /// **The interval must not be zero.**
+    pub fn per_nanosecond(&mut self, nanos: u64) -> &mut Self {
+        self.period = Duration::from_nanos(nanos);
+        self
     }
-    pub fn finish(self) -> GovernorConfig {
-        GovernorConfig {
-            limiter: Arc::new(RateLimiter::keyed(
-                Quota::with_period(self.quota_duration)
-                    .unwrap_or_else(|| Quota::with_period(Duration::from_secs(10)).unwrap())
-                    .allow_burst(self.quota_size),
-            )),
+    /// Set quota size that defines how many requests can occur
+    /// before the governor middleware starts blocking requests from an IP address and
+    /// clients have to wait until the elements of the quota are replenished.
+    ///
+    /// **The burst_size must not be zero.**
+    pub fn burst_size(&mut self, burst_size: u32) -> &mut Self {
+        self.burst_size = burst_size;
+        self
+    }
+    /// Finish building the configuration and return the configuration for the middleware.
+    /// Returns `None` if either burst size or period interval are zero.
+    pub fn finish(&mut self) -> Option<GovernorConfig> {
+        if self.burst_size != 0 && self.period.as_nanos() != 0 {
+            Some(GovernorConfig {
+                limiter: Arc::new(RateLimiter::keyed(
+                    Quota::with_period(self.period)
+                        .unwrap()
+                        .allow_burst(NonZeroU32::new(self.burst_size).unwrap()),
+                )),
+            })
+        } else {
+            None
         }
     }
 }
 
 #[derive(Clone)]
+/// Configuration for the Governor middleware.
 pub struct GovernorConfig {
     limiter: Arc<RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>>,
 }
 
+impl Default for GovernorConfig {
+    /// The default configuration which is suitable for most services.
+    /// Allows burst with up to 8 requests and replenishes one element after 500ms.
+    fn default() -> Self {
+        GovernorConfigBuilder {
+            period: DEFAULT_PERIOD,
+            burst_size: DEFAULT_BURST_SIZE,
+        }
+        .finish()
+        .unwrap()
+    }
+}
+
+impl GovernorConfig {
+    /// A default configuration for security related requests.
+    /// Allows burst with up to 2 requests and replenishes one element after 3s.
+    ///
+    /// This prevents brute-forcing passwords or security tokens
+    /// yet allows to quickly retype a wrong password once before the quota is exceeded.
+    pub fn secure() -> Self {
+        GovernorConfigBuilder {
+            period: Duration::from_secs(3),
+            burst_size: 2,
+        }
+        .finish()
+        .unwrap()
+    }
+}
+
+/// Governor middleware factory.
 pub struct Governor {
     limiter: Arc<RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>>,
 }
 
 impl Governor {
-    pub fn from_config(config: &GovernorConfig) -> Governor {
+    /// Create new governor middleware factory from configuration.
+    pub fn new(config: &GovernorConfig) -> Governor {
         Governor {
             limiter: config.limiter.clone(),
         }
@@ -142,7 +267,7 @@ where
         } else {
             return Box::pin(async {
                 Err(error::ErrorInternalServerError(
-                    "Coulnd't find peer address",
+                    "Couldn't find peer address",
                 ))
             });
         };
@@ -154,7 +279,6 @@ where
         Box::pin(async move {
             match limiter.check_key(&ip) {
                 Ok(_) => {
-                    log::info!("allowing remote {}", &ip);
                     let res = srv.call(req).await?;
                     Ok(res)
                 }
@@ -162,10 +286,15 @@ where
                     let wait_time = negative
                         .wait_time_from(DefaultClock::default().now())
                         .as_secs();
-                    log::info!("Limit exceeded for client: {} for {}", &ip, &wait_time);
-                    let mut response = actix_web::HttpResponse::TooManyRequests();
-                    response
-                        .set_header(actix_web::http::header::RETRY_AFTER, wait_time.to_string());
+                    log::info!(
+                        "Rate limit exceeded for client-IP [{}], quota reset in {}s",
+                        &ip,
+                        &wait_time
+                    );
+                    let wait_time_str = wait_time.to_string();
+                    let response = actix_web::HttpResponse::TooManyRequests()
+                        .set_header(actix_web::http::header::RETRY_AFTER, wait_time_str.clone())
+                        .body(format!("Too many requests, retry in {}s", wait_time_str));
                     Err(response.into())
                 }
             }
