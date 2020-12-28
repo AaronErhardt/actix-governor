@@ -1,4 +1,6 @@
-[![Docs](https://docs.rs/actix-governor/badge.svg)](https://docs.rs/actix-governor/) [![crates.io](https://img.shields.io/crates/v/actix-governor.svg)](https://crates.io/crates/actix-governor)
+![CI](https://github.com/AaronErhardt/actix-governor/workflows/CI/badge.svg?branch=main)
+[![Docs](https://docs.rs/actix-governor/badge.svg)](https://docs.rs/actix-governor/)
+[![crates.io](https://img.shields.io/crates/v/actix-governor.svg)](https://crates.io/crates/actix-governor)
 
 # Actix Governor
 
