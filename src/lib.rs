@@ -74,11 +74,13 @@
 //! For example the secure configuration can be used as a short version of this code:
 //!
 //! ```rust
+//! use actix_governor::GovernorConfigBuilder;
+//!
 //! let config = GovernorConfigBuilder::default()
-//!      .per_second(4)
-//!      .burst_size(2)
-//!      .finish()
-//!      .unwrap();
+//!     .per_second(4)
+//!     .burst_size(2)
+//!     .finish()
+//!     .unwrap();
 //! ```
 //!
 //! # Common pitfalls
