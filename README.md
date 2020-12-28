@@ -4,7 +4,7 @@
 
 # Actix Governor
 
-An middleware for [actix-web](https://github.com/actix/actix-web) that provides
+A middleware for [actix-web](https://github.com/actix/actix-web) that provides
 rate-limiting backed by [governor](https://github.com/antifuchs/governor).
 
 ## Features:
