@@ -104,7 +104,6 @@ use std::{
     cell::RefCell,
     net::IpAddr,
     num::NonZeroU32,
-    pin::Pin,
     rc::Rc,
     sync::Arc,
     task::{Context, Poll},
@@ -113,8 +112,7 @@ use std::{
 
 use actix_service::{Service, Transform};
 use actix_web::{dev::ServiceRequest, dev::ServiceResponse, error, Error};
-use futures::future::{ok, Ready};
-use futures::Future;
+use futures::future;
 
 const DEFAULT_PERIOD: Duration = Duration::from_millis(500);
 const DEFAULT_BURST_SIZE: u32 = 8;
@@ -269,10 +267,10 @@ where
     type Error = S::Error;
     type InitError = ();
     type Transform = GovernorMiddleware<S>;
-    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+    type Future = future::Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        ok(GovernorMiddleware::<S> {
+        future::ok(GovernorMiddleware::<S> {
             service: Rc::new(RefCell::new(service)),
             limiter: self.limiter.clone(),
         })
@@ -293,7 +291,7 @@ where
     type Request = ServiceRequest;
     type Response = ServiceResponse<B>;
     type Error = Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
+    type Future = future::Either<future::Ready<Result<ServiceResponse<B>, Error>>, S::Future>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
@@ -303,39 +301,32 @@ where
         let ip = if let Some(addr) = req.peer_addr() {
             addr.ip()
         } else {
-            return Box::pin(async {
-                Err(error::ErrorInternalServerError(
-                    "Couldn't find peer address",
-                ))
-            });
+            return future::Either::Left(future::err(error::ErrorInternalServerError(
+                "Couldn't find peer address",
+            )));
         };
 
-        // clone to prevent moving values into the closure
-        let mut srv = self.service.clone();
-        let limiter = self.limiter.clone();
-
-        Box::pin(async move {
-            match limiter.check_key(&ip) {
-                Ok(_) => {
-                    let res = srv.call(req).await?;
-                    Ok(res)
-                }
-                Err(negative) => {
-                    let wait_time = negative
-                        .wait_time_from(DefaultClock::default().now())
-                        .as_secs();
-                    log::info!(
-                        "Rate limit exceeded for client-IP [{}], quota reset in {}s",
-                        &ip,
-                        &wait_time
-                    );
-                    let wait_time_str = wait_time.to_string();
-                    let response = actix_web::HttpResponse::TooManyRequests()
-                        .set_header(actix_web::http::header::RETRY_AFTER, wait_time_str.clone())
-                        .body(format!("Too many requests, retry in {}s", wait_time_str));
-                    Err(response.into())
-                }
+        match self.limiter.check_key(&ip) {
+            Ok(_) => {
+                let fut = self.service.call(req);
+                future::Either::Right(fut)
             }
-        })
+
+            Err(negative) => {
+                let wait_time = negative
+                    .wait_time_from(DefaultClock::default().now())
+                    .as_secs();
+                log::info!(
+                    "Rate limit exceeded for client-IP [{}], quota reset in {}s",
+                    &ip,
+                    &wait_time
+                );
+                let wait_time_str = wait_time.to_string();
+                let response = actix_web::HttpResponse::TooManyRequests()
+                    .set_header(actix_web::http::header::RETRY_AFTER, wait_time_str.clone())
+                    .body(format!("Too many requests, retry in {}s", wait_time_str));
+                return future::Either::Left(future::err(response.into()));
+            }
+        }
     }
 }
