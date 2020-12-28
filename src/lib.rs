@@ -1,4 +1,4 @@
-//! A middleware for [actix-web](https://github.com/actix/actix-web) that provides
+//! A middleware for [actionable](https://github.com/actix/actix-web) that provides
 //! rate-limiting backed by [governor](https://github.com/antifuchs/governor).
 //!
 //! # Features:
@@ -11,7 +11,7 @@
 //! # How does it work?
 //!
 //! Each governor middleware has a configuration that stores a quota.
-//! The quota specifies how many requests can be send from a IP address
+//! The quota specifies how many requests can be sent from an IP address
 //! before the middleware starts blocking further requests.
 //!
 //! For example if the quota allowed ten requests a client could send a burst of
@@ -25,9 +25,9 @@
 //! This means you could send one request every two seconds on average.
 //!
 //! If there was a quota that allowed ten requests with the same period
-//! the client could again send a burst of ten requests and then had to wait
+//! a client could again send a burst of ten requests and then had to wait
 //! two seconds before sending further requests or 20 seconds before the full
-//! quota would be replenished an he could send another burst.
+//! quota would be replenished and he could send another burst.
 //!
 //! # Example
 //! ```rust,no_run
