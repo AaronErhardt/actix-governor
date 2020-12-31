@@ -110,8 +110,8 @@ use std::{
     time::Duration,
 };
 
-use actix_service::{Service, Transform};
-use actix_web::{dev::ServiceRequest, dev::ServiceResponse, error, Error};
+use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
+use actix_web::{error, Error};
 use futures::future;
 
 const DEFAULT_PERIOD: Duration = Duration::from_millis(500);

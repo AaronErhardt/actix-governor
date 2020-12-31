@@ -1,5 +1,4 @@
-use actix_service::Service;
-use actix_web::{http::StatusCode, test, web, App, HttpResponse, Responder};
+use actix_web::{dev::Service, http::StatusCode, test, web, App, HttpResponse, Responder};
 
 #[test]
 fn builder_test() {
