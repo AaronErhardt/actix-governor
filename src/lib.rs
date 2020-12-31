@@ -325,7 +325,7 @@ where
                 let response = actix_web::HttpResponse::TooManyRequests()
                     .set_header(actix_web::http::header::RETRY_AFTER, wait_time_str.clone())
                     .body(format!("Too many requests, retry in {}s", wait_time_str));
-                return future::Either::Left(future::err(response.into()));
+                future::Either::Left(future::err(response.into()))
             }
         }
     }
