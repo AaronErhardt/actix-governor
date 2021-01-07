@@ -1,6 +1,6 @@
 [package]
 name = "actix-governor"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Aaron Erhardt <aaron.erhardt@t-online.de>"]
 edition = "2018"
 description = "A rate-limiting middleware for actix-web backed by the governor crate"
