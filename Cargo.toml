@@ -20,4 +20,4 @@ governor = "0.3"
 log = "0.4"
 
 [dev-dependencies]
-actix-rt = "1.0"
+actix-rt = "2.2"
