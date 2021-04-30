@@ -1,0 +1,13 @@
+version: 2
+updates:
+- package-ecosystem: cargo
+  directory: "/"
+  schedule:
+    interval: daily
+    time: "11:00"
+  open-pull-requests-limit: 10
+  ignore:
+  - dependency-name: actix-rt
+    versions:
+    - 2.0.0
+    - 2.1.0
