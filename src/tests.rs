@@ -32,7 +32,7 @@ async fn test_server() {
         .finish()
         .unwrap();
 
-    let mut app = test::init_service(
+    let app = test::init_service(
         App::new()
             .wrap(Governor::new(&config))
             .route("/", web::get().to(hello)),
@@ -47,7 +47,7 @@ async fn test_server() {
         .peer_addr(addr)
         .uri("/")
         .to_request();
-    let test = test::call_service(&mut app, req).await;
+    let test = test::call_service(&app, req).await;
     assert_eq!(test.status(), StatusCode::OK);
 
     // Second request
@@ -55,7 +55,7 @@ async fn test_server() {
         .peer_addr(addr)
         .uri("/")
         .to_request();
-    let test = test::call_service(&mut app, req).await;
+    let test = test::call_service(&app, req).await;
     assert_eq!(test.status(), StatusCode::OK);
 
     // Third request -> Over limit, returns Error
@@ -78,7 +78,7 @@ async fn test_server() {
         .peer_addr(addr)
         .uri("/")
         .to_request();
-    let test = test::call_service(&mut app, req).await;
+    let test = test::call_service(&app, req).await;
     assert_eq!(test.status(), StatusCode::OK);
 
     // Second request after reset -> Again over limit, returns Error
@@ -91,4 +91,10 @@ async fn test_server() {
         test.as_response_error().status_code(),
         StatusCode::TOO_MANY_REQUESTS
     );
+    let body = if let actix_web::body::AnyBody::Bytes(bytes) = test.error_response().body() {
+        bytes.clone()
+    } else {
+        panic!();
+    };
+    assert_eq!(body, "Too many requests, retry in 0s");
 }

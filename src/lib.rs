@@ -111,7 +111,7 @@ use std::{
 };
 
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
-use actix_web::{error, Error};
+use actix_web::{body::MessageBody, error, Error};
 use futures::future;
 
 const DEFAULT_PERIOD: Duration = Duration::from_millis(500);
@@ -255,16 +255,13 @@ impl Governor {
     }
 }
 
-impl<S, B> Transform<S> for Governor
+impl<S, B> Transform<S, ServiceRequest> for Governor
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
-    S::Future: 'static,
-    B: 'static,
-    S: 'static,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    B: MessageBody,
 {
-    type Request = ServiceRequest;
     type Response = ServiceResponse<B>;
-    type Error = S::Error;
+    type Error = Error;
     type InitError = ();
     type Transform = GovernorMiddleware<S>;
     type Future = future::Ready<Result<Self::Transform, Self::InitError>>;
@@ -282,22 +279,21 @@ pub struct GovernorMiddleware<S> {
     limiter: Arc<RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>>,
 }
 
-impl<S: 'static, B> Service for GovernorMiddleware<S>
+impl<S, B> Service<ServiceRequest> for GovernorMiddleware<S>
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
-    S::Future: 'static,
-    B: 'static,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    B: MessageBody,
 {
-    type Request = ServiceRequest;
-    type Response = ServiceResponse<B>;
-    type Error = Error;
-    type Future = future::Either<future::Ready<Result<ServiceResponse<B>, Error>>, S::Future>;
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future =
+        future::Either<future::Ready<Result<ServiceResponse<B>, actix_web::Error>>, S::Future>;
 
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, req: ServiceRequest) -> Self::Future {
+    fn call(&self, req: ServiceRequest) -> Self::Future {
         let ip = if let Some(addr) = req.peer_addr() {
             addr.ip()
         } else {
@@ -316,16 +312,20 @@ where
                 let wait_time = negative
                     .wait_time_from(DefaultClock::default().now())
                     .as_secs();
+                #[cfg(feature = "log")]
                 log::info!(
                     "Rate limit exceeded for client-IP [{}], quota reset in {}s",
                     &ip,
                     &wait_time
                 );
                 let wait_time_str = wait_time.to_string();
+                let body = format!("Too many requests, retry in {}s", wait_time_str);
                 let response = actix_web::HttpResponse::TooManyRequests()
-                    .set_header(actix_web::http::header::RETRY_AFTER, wait_time_str.clone())
-                    .body(format!("Too many requests, retry in {}s", wait_time_str));
-                future::Either::Left(future::err(response.into()))
+                    .insert_header((actix_web::http::header::RETRY_AFTER, wait_time_str))
+                    .body(&body);
+                future::Either::Left(future::err(
+                    error::InternalError::from_response(body, response).into(),
+                ))
             }
         }
     }
