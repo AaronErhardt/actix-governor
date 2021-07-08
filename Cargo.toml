@@ -19,7 +19,7 @@ governor = "0.3"
 log = { version = "0.4", optional = true }
 
 [dev-dependencies]
-actix-rt = "2.0"
+actix-rt = "2.2"
 
 [features]
 logger = ["log"]
