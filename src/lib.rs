@@ -206,7 +206,7 @@ impl GovernorConfigBuilder {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Configuration for the Governor middleware.
 pub struct GovernorConfig {
     limiter: Arc<RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>>,
