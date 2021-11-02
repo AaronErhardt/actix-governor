@@ -111,8 +111,8 @@ use std::{
 };
 
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
-use actix_web::{body::MessageBody, error, Error};
 use actix_web::http::Method;
+use actix_web::{body::MessageBody, error, Error};
 use futures::future;
 
 const DEFAULT_PERIOD: Duration = Duration::from_millis(500);
@@ -136,9 +136,9 @@ const DEFAULT_BURST_SIZE: u32 = 8;
 /// ```
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct GovernorConfigBuilder {
-    period:     Duration,
+    period: Duration,
     burst_size: u32,
-    methods:    Option<Vec<Method>>
+    methods: Option<Vec<Method>>,
 }
 
 impl Default for GovernorConfigBuilder {
@@ -149,7 +149,7 @@ impl Default for GovernorConfigBuilder {
         GovernorConfigBuilder {
             period: DEFAULT_PERIOD,
             burst_size: DEFAULT_BURST_SIZE,
-            methods: None
+            methods: None,
         }
     }
 }
@@ -222,7 +222,7 @@ impl GovernorConfigBuilder {
 /// Configuration for the Governor middleware.
 pub struct GovernorConfig {
     limiter: Arc<RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>>,
-    methods: Option<Vec<Method>>
+    methods: Option<Vec<Method>>,
 }
 
 impl Default for GovernorConfig {
@@ -259,7 +259,7 @@ impl GovernorConfig {
 /// Governor middleware factory.
 pub struct Governor {
     limiter: Arc<RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>>,
-    methods: Option<Vec<Method>>
+    methods: Option<Vec<Method>>,
 }
 
 impl Governor {
