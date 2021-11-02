@@ -14,6 +14,7 @@ categories = ["web-programming::http-server"]
 
 [dependencies]
 actix-web = { version = "4.0.0-beta.9", default-features = false }
+http = "^0.2"
 futures = "0.3"
 governor = "0.3"
 log = { version = "0.4", optional = true }
