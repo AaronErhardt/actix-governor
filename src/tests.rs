@@ -1,8 +1,7 @@
-use actix_web::{dev::Service, http::StatusCode, test, web, App, HttpResponse, Responder};
+use actix_web::{dev::Service, http::StatusCode, web, App, HttpResponse, Responder};
 
-// This won't compile without `async` for some reason
-#[actix_rt::test]
-async fn builder_test() {
+#[test]
+fn builder_test() {
     use crate::GovernorConfigBuilder;
 
     let mut builder = GovernorConfigBuilder::default();
@@ -26,6 +25,7 @@ async fn hello() -> impl Responder {
 #[actix_rt::test]
 async fn test_server() {
     use crate::{Governor, GovernorConfigBuilder};
+    use actix_web::test;
 
     let config = GovernorConfigBuilder::default()
         .per_millisecond(90)
@@ -103,6 +103,7 @@ async fn test_server() {
 #[actix_rt::test]
 async fn test_method_filter() {
     use crate::{Governor, GovernorConfigBuilder, Method};
+    use actix_web::test;
 
     let config = GovernorConfigBuilder::default()
         .per_millisecond(90)
