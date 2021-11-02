@@ -110,14 +110,9 @@ use std::{
     time::Duration,
 };
 
-pub mod exports {
-    pub use http::Method;
-}
-pub use crate::exports::*;
-
-use http::Method;
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::{body::MessageBody, error, Error};
+use actix_web::http::Method;
 use futures::future;
 
 const DEFAULT_PERIOD: Duration = Duration::from_millis(500);
