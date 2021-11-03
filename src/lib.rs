@@ -111,6 +111,7 @@ use std::{
 };
 
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
+use actix_web::http::Method;
 use actix_web::{error, Error};
 use futures::future;
 
@@ -137,6 +138,7 @@ const DEFAULT_BURST_SIZE: u32 = 8;
 pub struct GovernorConfigBuilder {
     period: Duration,
     burst_size: u32,
+    methods: Option<Vec<Method>>,
 }
 
 impl Default for GovernorConfigBuilder {
@@ -147,6 +149,7 @@ impl Default for GovernorConfigBuilder {
         GovernorConfigBuilder {
             period: DEFAULT_PERIOD,
             burst_size: DEFAULT_BURST_SIZE,
+            methods: None,
         }
     }
 }
@@ -189,6 +192,12 @@ impl GovernorConfigBuilder {
         self.burst_size = burst_size;
         self
     }
+    /// Set the HTTP methods this configuration should apply to.
+    /// By default this is all methods
+    pub fn methods(&mut self, methods: Vec<Method>) -> &mut Self {
+        self.methods = Some(methods);
+        self
+    }
     /// Finish building the configuration and return the configuration for the middleware.
     /// Returns `None` if either burst size or period interval are zero.
     pub fn finish(&mut self) -> Option<GovernorConfig> {
@@ -199,6 +208,7 @@ impl GovernorConfigBuilder {
                         .unwrap()
                         .allow_burst(NonZeroU32::new(self.burst_size).unwrap()),
                 )),
+                methods: self.methods.clone(),
             })
         } else {
             None
@@ -210,6 +220,7 @@ impl GovernorConfigBuilder {
 /// Configuration for the Governor middleware.
 pub struct GovernorConfig {
     limiter: Arc<RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>>,
+    methods: Option<Vec<Method>>,
 }
 
 impl Default for GovernorConfig {
@@ -219,6 +230,7 @@ impl Default for GovernorConfig {
         GovernorConfigBuilder {
             period: DEFAULT_PERIOD,
             burst_size: DEFAULT_BURST_SIZE,
+            methods: None,
         }
         .finish()
         .unwrap()
@@ -235,6 +247,7 @@ impl GovernorConfig {
         GovernorConfigBuilder {
             period: Duration::from_secs(4),
             burst_size: 2,
+            methods: None,
         }
         .finish()
         .unwrap()
@@ -244,6 +257,7 @@ impl GovernorConfig {
 /// Governor middleware factory.
 pub struct Governor {
     limiter: Arc<RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>>,
+    methods: Option<Vec<Method>>,
 }
 
 impl Governor {
@@ -251,6 +265,7 @@ impl Governor {
     pub fn new(config: &GovernorConfig) -> Governor {
         Governor {
             limiter: config.limiter.clone(),
+            methods: config.methods.clone(),
         }
     }
 }
@@ -273,6 +288,7 @@ where
         future::ok(GovernorMiddleware::<S> {
             service: Rc::new(RefCell::new(service)),
             limiter: self.limiter.clone(),
+            methods: self.methods.clone(),
         })
     }
 }
@@ -280,6 +296,7 @@ where
 pub struct GovernorMiddleware<S> {
     service: std::rc::Rc<std::cell::RefCell<S>>,
     limiter: Arc<RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>>,
+    methods: Option<Vec<Method>>,
 }
 
 impl<S: 'static, B> Service for GovernorMiddleware<S>
@@ -298,6 +315,14 @@ where
     }
 
     fn call(&mut self, req: ServiceRequest) -> Self::Future {
+        if let Some(configured_methods) = &self.methods {
+            if !configured_methods.contains(req.method()) {
+                // The request method is not configured, we're ignoring this one.
+                let fut = self.service.call(req);
+                return future::Either::Right(fut);
+            }
+        }
+
         let ip = if let Some(addr) = req.peer_addr() {
             addr.ip()
         } else {
