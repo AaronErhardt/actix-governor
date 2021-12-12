@@ -83,6 +83,20 @@
 //!     .unwrap();
 //! ```
 //!
+//! # Customize rate limiting key
+//!
+//! By default, rate limiting is done using the peer IP address (i.e. the IP address of the HTTP client that requested your app: either your user or a reverse proxy, depending on your deployment setup).
+//! You can configure a different behavior which:
+//! 1. can be useful in itself
+//! 2. allows you to setup multiple instances of this middleware based on different keys (for example, if you want to apply rate limiting with different rates on IP and API keys at the same time)
+//!
+//! This is achieved by defining a [KeyExtractor] and giving it to a [Governor] instance.
+//! Two ready-to-use key extractors are provided:
+//! - [PeerIpKeyExtractor]: this is the default
+//! - [GlobalKeyExtractor]: uses the same key for all incoming requests
+//!
+//! Check out the [custom_key](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key.rs) example to see how a custom key extractor can be implemented.
+//!
 //! # Common pitfalls
 //!
 //! Do not construct the same configuration multiple times, unless explicitly wanted!
