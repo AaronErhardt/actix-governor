@@ -176,6 +176,29 @@ impl KeyExtractor for PeerIpKeyExtractor {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A [KeyExtractor] that allow to do rate limiting for all incoming requests. This is useful if you want to hard-limit the HTTP load your app can handle.
+pub struct GlobalKeyExtractor;
+
+impl KeyExtractor for GlobalKeyExtractor {
+    type Key = ();
+    type KeyExtractionError = &'static str;
+
+    #[cfg(feature = "log")]
+    fn name(&self) -> &'static str {
+        "global"
+    }
+
+    fn extract(&self, _req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
+        Ok(())
+    }
+
+    #[cfg(feature = "log")]
+    fn key_name(&self, _key: &Self::Key) -> Option<String> {
+        None
+    }
+}
+
 /// Helper struct for building a configuration for the governor middleware.
 ///
 /// # Example
