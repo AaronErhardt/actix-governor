@@ -92,11 +92,9 @@ async fn test_server() {
         test.as_response_error().status_code(),
         StatusCode::TOO_MANY_REQUESTS
     );
-    let body = if let actix_web::body::AnyBody::Bytes(bytes) = test.error_response().body() {
-        bytes.clone()
-    } else {
-        panic!();
-    };
+    let body = actix_web::body::to_bytes(test.error_response().into_body())
+        .await
+        .unwrap();
     assert_eq!(body, "Too many requests, retry in 0s");
 }
 
