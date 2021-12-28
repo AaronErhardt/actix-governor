@@ -1,6 +1,6 @@
 [package]
 name = "actix-governor"
-version = "0.2.5"
+version = "0.2.6"
 authors = ["Aaron Erhardt <aaron.erhardt@t-online.de>"]
 edition = "2018"
 description = "A rate-limiting middleware for actix-web backed by the governor crate"
@@ -16,7 +16,7 @@ categories = ["web-programming::http-server"]
 [dependencies]
 actix-web = { version = "3.0", default-features = false }
 futures = "0.3"
-governor = "0.3"
+governor = "0.4"
 log = "0.4"
 
 [dev-dependencies]
