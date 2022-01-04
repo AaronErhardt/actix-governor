@@ -242,12 +242,55 @@ impl Default for GovernorConfigBuilder<PeerIpKeyExtractor> {
     /// Allows burst with up to eight requests and replenishes one element after 500ms, based on peer IP.
     /// The values can be modified by calling other methods on this struct.
     fn default() -> Self {
+        Self::const_default()
+    }
+}
+
+impl GovernorConfigBuilder<PeerIpKeyExtractor> {
+    pub const fn const_default() -> Self {
         GovernorConfigBuilder {
             period: DEFAULT_PERIOD,
             burst_size: DEFAULT_BURST_SIZE,
             methods: None,
             key_extractor: PeerIpKeyExtractor,
         }
+    }
+    /// Set the interval after which one element of the quota is replenished.
+    ///
+    /// **The interval must not be zero.**
+    pub const fn const_period(mut self, duration: Duration) -> Self {
+        self.period = duration;
+        self
+    }
+    /// Set the interval after which one element of the quota is replenished in seconds.
+    ///
+    /// **The interval must not be zero.**
+    pub const fn const_per_second(mut self, seconds: u64) -> Self {
+        self.period = Duration::from_secs(seconds);
+        self
+    }
+    /// Set the interval after which one element of the quota is replenished in milliseconds.
+    ///
+    /// **The interval must not be zero.**
+    pub const fn const_per_millisecond(mut self, milliseconds: u64) -> Self {
+        self.period = Duration::from_millis(milliseconds);
+        self
+    }
+    /// Set the interval after which one element of the quota is replenished in nanoseconds.
+    ///
+    /// **The interval must not be zero.**
+    pub const fn const_per_nanosecond(mut self, nanoseconds: u64) -> Self {
+        self.period = Duration::from_nanos(nanoseconds);
+        self
+    }
+    /// Set quota size that defines how many requests can occur
+    /// before the governor middleware starts blocking requests from an IP address and
+    /// clients have to wait until the elements of the quota are replenished.
+    ///
+    /// **The burst_size must not be zero.**
+    pub const fn const_burst_size(mut self, burst_size: u32) -> Self {
+        self.burst_size = burst_size;
+        self
     }
 }
 
