@@ -66,10 +66,10 @@
 //! Instead of using the configuration builder you can use predefined presets.
 //!
 //! + [`GovernorConfig::default()`]: The default configuration which is suitable for most services.
-//! Allows bursts with up to eight requests and replenishes one element after 500ms.
+//! Allows bursts with up to eight requests and replenishes one element after 500ms, based on peer IP.
 //!
 //! + [`GovernorConfig::secure()`]: A default configuration for security related services.
-//! Allows bursts with up to two requests and replenishes one element after four seconds.
+//! Allows bursts with up to two requests and replenishes one element after four seconds, based on peer IP.
 //!
 //! For example the secure configuration can be used as a short version of this code:
 //!
@@ -82,6 +82,20 @@
 //!     .finish()
 //!     .unwrap();
 //! ```
+//!
+//! # Customize rate limiting key
+//!
+//! By default, rate limiting is done using the peer IP address (i.e. the IP address of the HTTP client that requested your app: either your user or a reverse proxy, depending on your deployment setup).
+//! You can configure a different behavior which:
+//! 1. can be useful in itself
+//! 2. allows you to setup multiple instances of this middleware based on different keys (for example, if you want to apply rate limiting with different rates on IP and API keys at the same time)
+//!
+//! This is achieved by defining a [KeyExtractor] and giving it to a [Governor] instance.
+//! Two ready-to-use key extractors are provided:
+//! - [PeerIpKeyExtractor]: this is the default
+//! - [GlobalKeyExtractor]: uses the same key for all incoming requests
+//!
+//! Check out the [custom_key](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key.rs) example to see how a custom key extractor can be implemented.
 //!
 //! # Common pitfalls
 //!
@@ -102,6 +116,8 @@ use governor::{
 
 use std::{
     cell::RefCell,
+    fmt::Display,
+    hash::Hash,
     net::IpAddr,
     num::NonZeroU32,
     rc::Rc,
@@ -118,7 +134,86 @@ use futures::future;
 const DEFAULT_PERIOD: Duration = Duration::from_millis(500);
 const DEFAULT_BURST_SIZE: u32 = 8;
 
-/// Helper struct for building a configuration for the governor middleware
+/// Generic structure of what is needed to extract a rate-limiting key from an incoming request.
+pub trait KeyExtractor: Clone + Copy {
+    /// The type of the key.
+    type Key: Clone + Hash + Eq;
+
+    /// The type of the error that can occur if key extraction from the request fails.
+    type KeyExtractionError: Display;
+
+    #[cfg(feature = "log")]
+    /// Name of this extractor (only used in logs).
+    fn name(&self) -> &'static str;
+
+    /// Extraction method
+    fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError>;
+
+    #[cfg(feature = "log")]
+    /// Value of the extracted key (only used in logs).
+    fn key_name(&self, _key: &Self::Key) -> Option<String> {
+        None
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A [KeyExtractor] that uses peer IP as key. **This is the default key extractor and [it may no do want you want](PeerIpKeyExtractor).**
+///
+/// **Warning:** this key extractor enforces rate limiting based on the **_peer_ IP address**.
+///
+/// This means that if your app is deployed behind a reverse proxy, the peer IP address will _always_ be the proxy's IP address.
+/// In this case, rate limiting will be applied to _all_ incoming requests as if they were from the same user.
+///
+/// If this is not the behavior you want, you may:
+/// - implement your own [KeyExtractor] that tries to get IP from the `Forwarded` or `X-Forwarded-For` headers that most reverse proxies set
+/// - make absolutely sure that you only trust these headers when the peer IP is the IP of your reverse proxy (otherwise any user could set them to fake its IP)
+pub struct PeerIpKeyExtractor;
+
+impl KeyExtractor for PeerIpKeyExtractor {
+    type Key = IpAddr;
+    type KeyExtractionError = &'static str;
+
+    #[cfg(feature = "log")]
+    fn name(&self) -> &'static str {
+        "peer IP"
+    }
+
+    fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
+        req.peer_addr()
+            .map(|socket| socket.ip())
+            .ok_or("Could not extract peer IP address from request")
+    }
+
+    #[cfg(feature = "log")]
+    fn key_name(&self, key: &Self::Key) -> Option<String> {
+        Some(key.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A [KeyExtractor] that allow to do rate limiting for all incoming requests. This is useful if you want to hard-limit the HTTP load your app can handle.
+pub struct GlobalKeyExtractor;
+
+impl KeyExtractor for GlobalKeyExtractor {
+    type Key = ();
+    type KeyExtractionError = &'static str;
+
+    #[cfg(feature = "log")]
+    fn name(&self) -> &'static str {
+        "global"
+    }
+
+    fn extract(&self, _req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
+        Ok(())
+    }
+
+    #[cfg(feature = "log")]
+    fn key_name(&self, _key: &Self::Key) -> Option<String> {
+        None
+    }
+}
+
+/// Helper struct for building a configuration for the governor middleware.
 ///
 /// # Example
 ///
@@ -134,27 +229,29 @@ const DEFAULT_BURST_SIZE: u32 = 8;
 ///     .finish()
 ///     .unwrap();
 /// ```
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct GovernorConfigBuilder {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GovernorConfigBuilder<K: KeyExtractor> {
     period: Duration,
     burst_size: u32,
     methods: Option<Vec<Method>>,
+    key_extractor: K,
 }
 
-impl Default for GovernorConfigBuilder {
+impl Default for GovernorConfigBuilder<PeerIpKeyExtractor> {
     /// The default configuration which is suitable for most services.
-    /// Allows burst with up to eight requests and replenishes one element after 500ms.
+    /// Allows burst with up to eight requests and replenishes one element after 500ms, based on peer IP.
     /// The values can be modified by calling other methods on this struct.
     fn default() -> Self {
         GovernorConfigBuilder {
             period: DEFAULT_PERIOD,
             burst_size: DEFAULT_BURST_SIZE,
             methods: None,
+            key_extractor: PeerIpKeyExtractor,
         }
     }
 }
 
-impl GovernorConfigBuilder {
+impl<K: KeyExtractor> GovernorConfigBuilder<K> {
     /// Set the interval after which one element of the quota is replenished.
     ///
     /// **The interval must not be zero.**
@@ -194,17 +291,32 @@ impl GovernorConfigBuilder {
     }
 
     /// Set the HTTP methods this configuration should apply to.
-    /// By default this is all methods
+    /// By default this is all methods.
     pub fn methods(&mut self, methods: Vec<Method>) -> &mut Self {
         self.methods = Some(methods);
         self
     }
 
+    /// Set the key extractor this configuration should use.
+    /// By default this is using the [PeerIpKeyExtractor].
+    pub fn key_extractor<K2: KeyExtractor>(
+        &mut self,
+        key_extractor: K2,
+    ) -> GovernorConfigBuilder<K2> {
+        GovernorConfigBuilder {
+            period: self.period,
+            burst_size: self.burst_size,
+            methods: self.methods.to_owned(),
+            key_extractor,
+        }
+    }
+
     /// Finish building the configuration and return the configuration for the middleware.
     /// Returns `None` if either burst size or period interval are zero.
-    pub fn finish(&mut self) -> Option<GovernorConfig> {
+    pub fn finish(&mut self) -> Option<GovernorConfig<K>> {
         if self.burst_size != 0 && self.period.as_nanos() != 0 {
             Some(GovernorConfig {
+                key_extractor: self.key_extractor,
                 limiter: Arc::new(RateLimiter::keyed(
                     Quota::with_period(self.period)
                         .unwrap()
@@ -220,28 +332,23 @@ impl GovernorConfigBuilder {
 
 #[derive(Clone, Debug)]
 /// Configuration for the Governor middleware.
-pub struct GovernorConfig {
-    limiter: Arc<RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>>,
+pub struct GovernorConfig<K: KeyExtractor> {
+    key_extractor: K,
+    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock>>,
     methods: Option<Vec<Method>>,
 }
 
-impl Default for GovernorConfig {
+impl Default for GovernorConfig<PeerIpKeyExtractor> {
     /// The default configuration which is suitable for most services.
-    /// Allows bursts with up to eight requests and replenishes one element after 500ms.
+    /// Allows bursts with up to eight requests and replenishes one element after 500ms, based on peer IP.
     fn default() -> Self {
-        GovernorConfigBuilder {
-            period: DEFAULT_PERIOD,
-            burst_size: DEFAULT_BURST_SIZE,
-            methods: None,
-        }
-        .finish()
-        .unwrap()
+        GovernorConfigBuilder::default().finish().unwrap()
     }
 }
 
-impl GovernorConfig {
+impl GovernorConfig<PeerIpKeyExtractor> {
     /// A default configuration for security related services.
-    /// Allows bursts with up to two requests and replenishes one element after four seconds.
+    /// Allows bursts with up to two requests and replenishes one element after four seconds, based on peer IP.
     ///
     /// This prevents brute-forcing passwords or security tokens
     /// yet allows to quickly retype a wrong password once before the quota is exceeded.
@@ -250,6 +357,7 @@ impl GovernorConfig {
             period: Duration::from_secs(4),
             burst_size: 2,
             methods: None,
+            key_extractor: PeerIpKeyExtractor,
         }
         .finish()
         .unwrap()
@@ -257,49 +365,55 @@ impl GovernorConfig {
 }
 
 /// Governor middleware factory.
-pub struct Governor {
-    limiter: Arc<RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>>,
+pub struct Governor<K: KeyExtractor> {
+    key_extractor: K,
+    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock>>,
     methods: Option<Vec<Method>>,
 }
 
-impl Governor {
+impl<K: KeyExtractor> Governor<K> {
     /// Create new governor middleware factory from configuration.
-    pub fn new(config: &GovernorConfig) -> Governor {
+    pub fn new(config: &GovernorConfig<K>) -> Self {
         Governor {
+            key_extractor: config.key_extractor,
             limiter: config.limiter.clone(),
             methods: config.methods.clone(),
         }
     }
 }
 
-impl<S, B> Transform<S, ServiceRequest> for Governor
+impl<S, B, K> Transform<S, ServiceRequest> for Governor<K>
 where
+    K: KeyExtractor,
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
     B: MessageBody,
 {
     type Response = ServiceResponse<B>;
     type Error = Error;
     type InitError = ();
-    type Transform = GovernorMiddleware<S>;
+    type Transform = GovernorMiddleware<S, K>;
     type Future = future::Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        future::ok(GovernorMiddleware::<S> {
+        future::ok(GovernorMiddleware::<S, K> {
             service: Rc::new(RefCell::new(service)),
+            key_extractor: self.key_extractor,
             limiter: self.limiter.clone(),
             methods: self.methods.clone(),
         })
     }
 }
 
-pub struct GovernorMiddleware<S> {
+pub struct GovernorMiddleware<S, K: KeyExtractor> {
     service: std::rc::Rc<std::cell::RefCell<S>>,
-    limiter: Arc<RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, DefaultClock>>,
+    key_extractor: K,
+    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock>>,
     methods: Option<Vec<Method>>,
 }
 
-impl<S, B> Service<ServiceRequest> for GovernorMiddleware<S>
+impl<S, B, K> Service<ServiceRequest> for GovernorMiddleware<S, K>
 where
+    K: KeyExtractor,
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
     B: MessageBody,
 {
@@ -321,38 +435,48 @@ where
             }
         }
 
-        let ip = if let Some(addr) = req.peer_addr() {
-            addr.ip()
-        } else {
-            return future::Either::Left(future::err(error::ErrorInternalServerError(
-                "Couldn't find peer address",
-            )));
-        };
+        // Use the provided key extractor to extract the rate limiting key from the request.
+        match self.key_extractor.extract(&req) {
+            // Extraction worked, let's check if rate limiting is needed.
+            Ok(key) => match self.limiter.check_key(&key) {
+                Ok(_) => {
+                    let fut = self.service.call(req);
+                    future::Either::Right(fut)
+                }
 
-        match self.limiter.check_key(&ip) {
-            Ok(_) => {
-                let fut = self.service.call(req);
-                future::Either::Right(fut)
-            }
+                Err(negative) => {
+                    let wait_time = negative
+                        .wait_time_from(DefaultClock::default().now())
+                        .as_secs();
 
-            Err(negative) => {
-                let wait_time = negative
-                    .wait_time_from(DefaultClock::default().now())
-                    .as_secs();
-                #[cfg(feature = "log")]
-                log::info!(
-                    "Rate limit exceeded for client-IP [{}], quota reset in {}s",
-                    &ip,
-                    &wait_time
-                );
-                let wait_time_str = wait_time.to_string();
-                let body = format!("Too many requests, retry in {}s", wait_time_str);
-                let response = actix_web::HttpResponse::TooManyRequests()
-                    .insert_header((actix_web::http::header::RETRY_AFTER, wait_time_str))
-                    .body(&body);
-                future::Either::Left(future::err(
-                    error::InternalError::from_response(body, response).into(),
-                ))
+                    #[cfg(feature = "log")]
+                    {
+                        let key_name = match self.key_extractor.key_name(&key) {
+                            Some(n) => format!(" [{}]", &n),
+                            None => "".to_owned(),
+                        };
+                        log::info!(
+                            "Rate limit exceeded for {}{}, quota reset in {}s",
+                            self.key_extractor.name(),
+                            key_name,
+                            &wait_time
+                        );
+                    }
+
+                    let wait_time_str = wait_time.to_string();
+                    let body = format!("Too many requests, retry in {}s", wait_time_str);
+                    let response = actix_web::HttpResponse::TooManyRequests()
+                        .insert_header((actix_web::http::header::RETRY_AFTER, wait_time_str))
+                        .body(body.clone());
+                    future::Either::Left(future::err(
+                        error::InternalError::from_response(body, response).into(),
+                    ))
+                }
+            },
+
+            // Extraction failed, stop right now with a HTTP 500 error.
+            Err(e) => {
+                future::Either::Left(future::err(error::ErrorInternalServerError(e.to_string())))
             }
         }
     }

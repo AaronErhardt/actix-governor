@@ -1,8 +1,8 @@
 [package]
 name = "actix-governor"
-version = "0.3.0"
+version = "0.3.0-beta.1"
 authors = ["Aaron Erhardt <aaron.erhardt@t-online.de>"]
-edition = "2018"
+edition = "2021"
 description = "A rate-limiting middleware for actix-web backed by the governor crate"
 repository = "https://github.com/AaronErhardt/actix-governor"
 readme = "README.md"
@@ -13,13 +13,14 @@ categories = ["web-programming::http-server"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = { version = "4.0.0-beta.9", default-features = false }
+actix-web = { version = "4.0.0-beta.16", default-features = false }
+actix-http = "3.0.0-beta.17"
 futures = "0.3"
-governor = "0.3"
+governor = "0.4"
 log = { version = "0.4", optional = true }
 
 [dev-dependencies]
-actix-rt = "2.2"
+actix-rt = "2.5"
 
 [features]
 logger = ["log"]
