@@ -47,7 +47,7 @@ async fn main() -> std::io::Result<()> {
                     }),
                 // The request is not comming from the reverse proxy, we use peer IP
                 _ => connection_info
-                    .remote_addr()
+                    .peer_addr()
                     .ok_or("Could not extract peer IP address from request")
                     .and_then(|str| {
                         SocketAddr::from_str(str)
