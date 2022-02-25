@@ -12,7 +12,6 @@ rate-limiting backed by [governor](https://github.com/antifuchs/governor).
 + Simple to use
 + High performance
 + Robust yet flexible API
-+ Actively maintained as part of the [Triox-Poject](https://github.com/AaronErhardt/Triox)
 
 ## Example
 
