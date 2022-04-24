@@ -135,7 +135,7 @@ const DEFAULT_PERIOD: Duration = Duration::from_millis(500);
 const DEFAULT_BURST_SIZE: u32 = 8;
 
 /// Generic structure of what is needed to extract a rate-limiting key from an incoming request.
-pub trait KeyExtractor: Clone + Copy {
+pub trait KeyExtractor: Clone {
     /// The type of the key.
     type Key: Clone + Hash + Eq;
 
@@ -359,7 +359,7 @@ impl<K: KeyExtractor> GovernorConfigBuilder<K> {
     pub fn finish(&mut self) -> Option<GovernorConfig<K>> {
         if self.burst_size != 0 && self.period.as_nanos() != 0 {
             Some(GovernorConfig {
-                key_extractor: self.key_extractor,
+                key_extractor: self.key_extractor.clone(),
                 limiter: Arc::new(RateLimiter::keyed(
                     Quota::with_period(self.period)
                         .unwrap()
@@ -418,7 +418,7 @@ impl<K: KeyExtractor> Governor<K> {
     /// Create new governor middleware factory from configuration.
     pub fn new(config: &GovernorConfig<K>) -> Self {
         Governor {
-            key_extractor: config.key_extractor,
+            key_extractor: config.key_extractor.clone(),
             limiter: config.limiter.clone(),
             methods: config.methods.clone(),
         }
@@ -440,7 +440,7 @@ where
     fn new_transform(&self, service: S) -> Self::Future {
         future::ok(GovernorMiddleware::<S, K> {
             service: Rc::new(RefCell::new(service)),
-            key_extractor: self.key_extractor,
+            key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
             methods: self.methods.clone(),
         })
