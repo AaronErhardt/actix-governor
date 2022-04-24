@@ -97,6 +97,11 @@
 //!
 //! Check out the [custom_key](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key.rs) example to see how a custom key extractor can be implemented.
 //!
+//! # Add x-ratelimit headers
+//!
+//! By default, `x-ratelimit-after` is enable but if you want to enable `x-ratelimit-limit` and `x-ratelimit-remaining` use [`with_headers`] method
+//!
+//! [`with_headers`]: crate::GovernorConfigBuilder::with_headers
 //! # Common pitfalls
 //!
 //! Do not construct the same configuration multiple times, unless explicitly wanted!
@@ -131,7 +136,7 @@ use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::http::Method;
 use actix_web::{body::MessageBody, error, Error};
 use futures::future;
-use governor::middleware::{StateInformationMiddleware};
+use governor::middleware::StateInformationMiddleware;
 
 const DEFAULT_PERIOD: Duration = Duration::from_millis(500);
 const DEFAULT_BURST_SIZE: u32 = 8;
@@ -231,12 +236,26 @@ impl KeyExtractor for GlobalKeyExtractor {
 ///     .finish()
 ///     .unwrap();
 /// ```
+///
+/// with x-ratelimit headers
+///
+/// ```rust
+/// use actix_governor::GovernorConfigBuilder;
+///
+/// let config = GovernorConfigBuilder::default()
+///     .per_second(60)
+///     .burst_size(10)
+///     .with_headers() // Add this
+///     .finish()
+///     .unwrap();
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GovernorConfigBuilder<K: KeyExtractor> {
     period: Duration,
     burst_size: u32,
     methods: Option<Vec<Method>>,
     key_extractor: K,
+    with_headers: bool,
 }
 
 impl Default for GovernorConfigBuilder<PeerIpKeyExtractor> {
@@ -255,6 +274,7 @@ impl GovernorConfigBuilder<PeerIpKeyExtractor> {
             burst_size: DEFAULT_BURST_SIZE,
             methods: None,
             key_extractor: PeerIpKeyExtractor,
+            with_headers: false,
         }
     }
     /// Set the interval after which one element of the quota is replenished.
@@ -353,7 +373,19 @@ impl<K: KeyExtractor> GovernorConfigBuilder<K> {
             burst_size: self.burst_size,
             methods: self.methods.to_owned(),
             key_extractor,
+            with_headers: self.with_headers,
         }
+    }
+
+    /// Set x-ratelimit headers to response the headers is
+    /// - `x-ratelimit-limit`     - Request limit
+    /// - `x-ratelimit-remaining` - The number of requests left for the time window
+    /// - `x-ratelimit-after`     - Number of seconds in which the API will become available after its rate limit has been exceeded
+    ///
+    /// By default only `x-ratelimit-after` is used
+    pub fn with_headers(&mut self) -> &mut Self {
+        self.with_headers = true;
+        self
     }
 
     /// Finish building the configuration and return the configuration for the middleware.
@@ -362,12 +394,16 @@ impl<K: KeyExtractor> GovernorConfigBuilder<K> {
         if self.burst_size != 0 && self.period.as_nanos() != 0 {
             Some(GovernorConfig {
                 key_extractor: self.key_extractor.clone(),
-                limiter: Arc::new(RateLimiter::keyed(
-                    Quota::with_period(self.period)
-                        .unwrap()
-                        .allow_burst(NonZeroU32::new(self.burst_size).unwrap()),
-                ).with_middleware::<StateInformationMiddleware>()),
+                limiter: Arc::new(
+                    RateLimiter::keyed(
+                        Quota::with_period(self.period)
+                            .unwrap()
+                            .allow_burst(NonZeroU32::new(self.burst_size).unwrap()),
+                    )
+                    .with_middleware::<StateInformationMiddleware>(),
+                ),
                 methods: self.methods.clone(),
+                with_headers: self.with_headers,
             })
         } else {
             None
@@ -379,8 +415,16 @@ impl<K: KeyExtractor> GovernorConfigBuilder<K> {
 /// Configuration for the Governor middleware.
 pub struct GovernorConfig<K: KeyExtractor> {
     key_extractor: K,
-    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock, StateInformationMiddleware>>,
+    limiter: Arc<
+        RateLimiter<
+            K::Key,
+            DefaultKeyedStateStore<K::Key>,
+            DefaultClock,
+            StateInformationMiddleware,
+        >,
+    >,
     methods: Option<Vec<Method>>,
+    with_headers: bool,
 }
 
 impl Default for GovernorConfig<PeerIpKeyExtractor> {
@@ -403,6 +447,7 @@ impl GovernorConfig<PeerIpKeyExtractor> {
             burst_size: 2,
             methods: None,
             key_extractor: PeerIpKeyExtractor,
+            with_headers: false, // false because before adding it was like this
         }
         .finish()
         .unwrap()
@@ -412,8 +457,16 @@ impl GovernorConfig<PeerIpKeyExtractor> {
 /// Governor middleware factory.
 pub struct Governor<K: KeyExtractor> {
     key_extractor: K,
-    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock, StateInformationMiddleware>>,
+    limiter: Arc<
+        RateLimiter<
+            K::Key,
+            DefaultKeyedStateStore<K::Key>,
+            DefaultClock,
+            StateInformationMiddleware,
+        >,
+    >,
     methods: Option<Vec<Method>>,
+    with_headers: bool,
 }
 
 impl<K: KeyExtractor> Governor<K> {
@@ -423,6 +476,7 @@ impl<K: KeyExtractor> Governor<K> {
             key_extractor: config.key_extractor.clone(),
             limiter: config.limiter.clone(),
             methods: config.methods.clone(),
+            with_headers: config.with_headers,
         }
     }
 }
@@ -445,6 +499,7 @@ where
             key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
             methods: self.methods.clone(),
+            with_headers: self.with_headers,
         })
     }
 }
@@ -452,8 +507,16 @@ where
 pub struct GovernorMiddleware<S, K: KeyExtractor> {
     service: std::rc::Rc<std::cell::RefCell<S>>,
     key_extractor: K,
-    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock, StateInformationMiddleware>>,
+    limiter: Arc<
+        RateLimiter<
+            K::Key,
+            DefaultKeyedStateStore<K::Key>,
+            DefaultClock,
+            StateInformationMiddleware,
+        >,
+    >,
     methods: Option<Vec<Method>>,
+    with_headers: bool,
 }
 
 impl<S, B, K> Service<ServiceRequest> for GovernorMiddleware<S, K>
@@ -487,15 +550,17 @@ where
                 Ok(_positive) => {
                     let fut = self.service.call(req);
                     // let mut response = ...;
-                    // // Add x-ratelimit headers
-                    // response.headers_mut().insert(
-                    //     HeaderName::from_static("x-ratelimit-limit"),
-                    //     positive.quota().burst_size().get().into(),
-                    // );
-                    // response.headers_mut().insert(
-                    //     HeaderName::from_static("x-ratelimit-remaining"),
-                    //     positive.remaining_burst_capacity().into(),
-                    // );
+                    // Add x-ratelimit headers
+                    // if self.with_headers {
+                    //     response.headers_mut().insert(
+                    //         HeaderName::from_static("x-ratelimit-limit"),
+                    //         positive.quota().burst_size().get().into(),
+                    //     );
+                    //     response.headers_mut().insert(
+                    //         HeaderName::from_static("x-ratelimit-remaining"),
+                    //         positive.remaining_burst_capacity().into(),
+                    //     );
+                    // }
 
                     future::Either::Right(fut)
                 }
@@ -525,18 +590,21 @@ where
                         actix_web::HttpResponse::TooManyRequests().body(body.clone());
 
                     // Add x-ratelimit headers
-                    response.headers_mut().insert(
-                        HeaderName::from_static("x-ratelimit-limit"),
-                        negative.quota().burst_size().get().into(),
-                    );
+                    // By default x-ratelimit-after is enable
                     response.headers_mut().insert(
                         HeaderName::from_static("x-ratelimit-after"),
                         wait_time.into(),
                     );
-                    response.headers_mut().insert(
-                        HeaderName::from_static("x-ratelimit-remaining"),
-                        0u32.into(),
-                    );
+                    if self.with_headers {
+                        response.headers_mut().insert(
+                            HeaderName::from_static("x-ratelimit-limit"),
+                            negative.quota().burst_size().get().into(),
+                        );
+                        response.headers_mut().insert(
+                            HeaderName::from_static("x-ratelimit-remaining"),
+                            0u32.into(), // If the state is negative the remaining is zero
+                        );
+                    }
 
                     future::Either::Left(future::err(
                         error::InternalError::from_response(body, response).into(),
