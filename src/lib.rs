@@ -126,10 +126,12 @@ use std::{
     time::Duration,
 };
 
+use actix_http::header::HeaderName;
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::http::Method;
 use actix_web::{body::MessageBody, error, Error};
 use futures::future;
+use governor::middleware::{StateInformationMiddleware};
 
 const DEFAULT_PERIOD: Duration = Duration::from_millis(500);
 const DEFAULT_BURST_SIZE: u32 = 8;
@@ -364,7 +366,7 @@ impl<K: KeyExtractor> GovernorConfigBuilder<K> {
                     Quota::with_period(self.period)
                         .unwrap()
                         .allow_burst(NonZeroU32::new(self.burst_size).unwrap()),
-                )),
+                ).with_middleware::<StateInformationMiddleware>()),
                 methods: self.methods.clone(),
             })
         } else {
@@ -377,7 +379,7 @@ impl<K: KeyExtractor> GovernorConfigBuilder<K> {
 /// Configuration for the Governor middleware.
 pub struct GovernorConfig<K: KeyExtractor> {
     key_extractor: K,
-    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock>>,
+    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock, StateInformationMiddleware>>,
     methods: Option<Vec<Method>>,
 }
 
@@ -410,7 +412,7 @@ impl GovernorConfig<PeerIpKeyExtractor> {
 /// Governor middleware factory.
 pub struct Governor<K: KeyExtractor> {
     key_extractor: K,
-    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock>>,
+    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock, StateInformationMiddleware>>,
     methods: Option<Vec<Method>>,
 }
 
@@ -450,7 +452,7 @@ where
 pub struct GovernorMiddleware<S, K: KeyExtractor> {
     service: std::rc::Rc<std::cell::RefCell<S>>,
     key_extractor: K,
-    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock>>,
+    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock, StateInformationMiddleware>>,
     methods: Option<Vec<Method>>,
 }
 
@@ -482,8 +484,19 @@ where
         match self.key_extractor.extract(&req) {
             // Extraction worked, let's check if rate limiting is needed.
             Ok(key) => match self.limiter.check_key(&key) {
-                Ok(_) => {
+                Ok(_positive) => {
                     let fut = self.service.call(req);
+                    // let mut response = ...;
+                    // // Add x-ratelimit headers
+                    // response.headers_mut().insert(
+                    //     HeaderName::from_static("x-ratelimit-limit"),
+                    //     positive.quota().burst_size().get().into(),
+                    // );
+                    // response.headers_mut().insert(
+                    //     HeaderName::from_static("x-ratelimit-remaining"),
+                    //     positive.remaining_burst_capacity().into(),
+                    // );
+
                     future::Either::Right(fut)
                 }
 
@@ -508,9 +521,23 @@ where
 
                     let wait_time_str = wait_time.to_string();
                     let body = format!("Too many requests, retry in {}s", wait_time_str);
-                    let response = actix_web::HttpResponse::TooManyRequests()
-                        .insert_header((actix_web::http::header::RETRY_AFTER, wait_time_str))
-                        .body(body.clone());
+                    let mut response =
+                        actix_web::HttpResponse::TooManyRequests().body(body.clone());
+
+                    // Add x-ratelimit headers
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-ratelimit-limit"),
+                        negative.quota().burst_size().get().into(),
+                    );
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-ratelimit-after"),
+                        wait_time.into(),
+                    );
+                    response.headers_mut().insert(
+                        HeaderName::from_static("x-ratelimit-remaining"),
+                        0u32.into(),
+                    );
+
                     future::Either::Left(future::err(
                         error::InternalError::from_response(body, response).into(),
                     ))
