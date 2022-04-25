@@ -119,6 +119,8 @@ use governor::{
     Quota, RateLimiter,
 };
 
+use std::future::Future;
+use std::pin::Pin;
 use std::{
     cell::RefCell,
     fmt::Display,
@@ -131,7 +133,7 @@ use std::{
     time::Duration,
 };
 
-use actix_http::header::HeaderName;
+use actix_http::header::{HeaderName, HeaderValue};
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::http::Method;
 use actix_web::{body::MessageBody, error, Error};
@@ -378,11 +380,14 @@ impl<K: KeyExtractor> GovernorConfigBuilder<K> {
     }
 
     /// Set x-ratelimit headers to response the headers is
-    /// - `x-ratelimit-limit`     - Request limit
-    /// - `x-ratelimit-remaining` - The number of requests left for the time window
-    /// - `x-ratelimit-after`     - Number of seconds in which the API will become available after its rate limit has been exceeded
+    /// - `x-ratelimit-limit`       - Request limit
+    /// - `x-ratelimit-remaining`   - The number of requests left for the time window
+    /// - `x-ratelimit-after`       - Number of seconds in which the API will become available after its rate limit has been exceeded
+    /// - `x-ratelimit-whitelisted` - If the request method in ignored methods, this header will be add it, use [`methods`] to add methods
     ///
-    /// By default only `x-ratelimit-after` is used
+    /// By default `x-ratelimit-after` and `x-ratelimit-whitelisted` is used
+    ///
+    /// [`methods`]: crate::GovernorConfigBuilder::methods()
     pub fn with_headers(&mut self) -> &mut Self {
         self.with_headers = true;
         self
@@ -483,8 +488,8 @@ impl<K: KeyExtractor> Governor<K> {
 
 impl<S, B, K> Transform<S, ServiceRequest> for Governor<K>
 where
-    K: KeyExtractor,
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    K: KeyExtractor + 'static,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     B: MessageBody,
 {
     type Response = ServiceResponse<B>;
@@ -521,101 +526,113 @@ pub struct GovernorMiddleware<S, K: KeyExtractor> {
 
 impl<S, B, K> Service<ServiceRequest> for GovernorMiddleware<S, K>
 where
-    K: KeyExtractor,
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    K: KeyExtractor + 'static,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
     B: MessageBody,
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future =
-        future::Either<future::Ready<Result<ServiceResponse<B>, actix_web::Error>>, S::Future>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
     }
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
-        if let Some(configured_methods) = &self.methods {
+        let service = self.service.clone();
+        let methods = self.methods.clone();
+        let key_extractor = self.key_extractor.clone();
+        let with_headers = self.with_headers.clone();
+        let limiter = self.limiter.clone();
+
+        if let Some(configured_methods) = &methods {
             if !configured_methods.contains(req.method()) {
-                // The request method is not configured, we're ignoring this one.
-                let fut = self.service.call(req);
-                return future::Either::Right(fut);
-            }
-        }
-
-        // Use the provided key extractor to extract the rate limiting key from the request.
-        match self.key_extractor.extract(&req) {
-            // Extraction worked, let's check if rate limiting is needed.
-            Ok(key) => match self.limiter.check_key(&key) {
-                Ok(_positive) => {
-                    let fut = self.service.call(req);
-                    // let mut response = ...;
-                    // Add x-ratelimit headers
-                    // if self.with_headers {
-                    //     response.headers_mut().insert(
-                    //         HeaderName::from_static("x-ratelimit-limit"),
-                    //         positive.quota().burst_size().get().into(),
-                    //     );
-                    //     response.headers_mut().insert(
-                    //         HeaderName::from_static("x-ratelimit-remaining"),
-                    //         positive.remaining_burst_capacity().into(),
-                    //     );
-                    // }
-
-                    future::Either::Right(fut)
-                }
-
-                Err(negative) => {
-                    let wait_time = negative
-                        .wait_time_from(DefaultClock::default().now())
-                        .as_secs();
-
-                    #[cfg(feature = "log")]
-                    {
-                        let key_name = match self.key_extractor.key_name(&key) {
-                            Some(n) => format!(" [{}]", &n),
-                            None => "".to_owned(),
-                        };
-                        log::info!(
-                            "Rate limit exceeded for {}{}, quota reset in {}s",
-                            self.key_extractor.name(),
-                            key_name,
-                            &wait_time
-                        );
-                    }
-
-                    let wait_time_str = wait_time.to_string();
-                    let body = format!("Too many requests, retry in {}s", wait_time_str);
-                    let mut response =
-                        actix_web::HttpResponse::TooManyRequests().body(body.clone());
-
-                    // Add x-ratelimit headers
-                    // By default x-ratelimit-after is enable
-                    response.headers_mut().insert(
-                        HeaderName::from_static("x-ratelimit-after"),
-                        wait_time.into(),
+                return Box::pin(async move {
+                    // The request method is not configured, we're ignoring this one.
+                    let fut = service.call(req);
+                    let mut response = fut.await?;
+                    let headers = response.headers_mut();
+                    headers.insert(
+                        HeaderName::from_static("x-ratelimit-whitelisted"),
+                        HeaderValue::from_static("true"),
                     );
-                    if self.with_headers {
-                        response.headers_mut().insert(
-                            HeaderName::from_static("x-ratelimit-limit"),
-                            negative.quota().burst_size().get().into(),
-                        );
-                        response.headers_mut().insert(
-                            HeaderName::from_static("x-ratelimit-remaining"),
-                            0u32.into(), // If the state is negative the remaining is zero
-                        );
-                    }
-
-                    future::Either::Left(future::err(
-                        error::InternalError::from_response(body, response).into(),
-                    ))
-                }
-            },
-
-            // Extraction failed, stop right now with a HTTP 500 error.
-            Err(e) => {
-                future::Either::Left(future::err(error::ErrorInternalServerError(e.to_string())))
+                    Ok::<Self::Response, Self::Error>(response)
+                });
             }
         }
+
+        Box::pin(async move {
+            // Use the provided key extractor to extract the rate limiting key from the request.
+            match key_extractor.extract(&req) {
+                // Extraction worked, let's check if rate limiting is needed.
+                Ok(key) => match limiter.check_key(&key) {
+                    Ok(positive) => {
+                        let fut = service.call(req);
+                        let mut response = fut.await?;
+                        let headers = response.headers_mut();
+                        // Add x-ratelimit headers
+                        if with_headers {
+                            let headers = headers;
+                            headers.insert(
+                                HeaderName::from_static("x-ratelimit-limit"),
+                                positive.quota().burst_size().get().into(),
+                            );
+                            headers.insert(
+                                HeaderName::from_static("x-ratelimit-remaining"),
+                                positive.remaining_burst_capacity().into(),
+                            );
+                        }
+                        Ok(response)
+                    }
+
+                    Err(negative) => {
+                        let wait_time = negative
+                            .wait_time_from(DefaultClock::default().now())
+                            .as_secs();
+
+                        #[cfg(feature = "log")]
+                        {
+                            let key_name = match key_extractor.key_name(&key) {
+                                Some(n) => format!(" [{}]", &n),
+                                None => "".to_owned(),
+                            };
+                            log::info!(
+                                "Rate limit exceeded for {}{}, quota reset in {}s",
+                                key_extractor.name(),
+                                key_name,
+                                &wait_time
+                            );
+                        }
+
+                        let wait_time_str = wait_time.to_string();
+                        let body = format!("Too many requests, retry in {}s", wait_time_str);
+                        let mut response =
+                            actix_web::HttpResponse::TooManyRequests().body(body.clone());
+                        let headers = response.headers_mut();
+
+                        // Add x-ratelimit headers
+                        // By default x-ratelimit-after is enable
+                        headers.insert(
+                            HeaderName::from_static("x-ratelimit-after"),
+                            wait_time.into(),
+                        );
+                        if with_headers {
+                            headers.insert(
+                                HeaderName::from_static("x-ratelimit-limit"),
+                                negative.quota().burst_size().get().into(),
+                            );
+                            headers.insert(
+                                HeaderName::from_static("x-ratelimit-remaining"),
+                                0u32.into(), // If the state is negative the remaining is zero
+                            );
+                        }
+                        Err(error::InternalError::from_response(body, response).into())
+                    }
+                },
+
+                // Extraction failed, stop right now with a HTTP 500 error.
+                Err(e) => Err(error::ErrorInternalServerError(e.to_string())),
+            }
+        })
     }
 }
