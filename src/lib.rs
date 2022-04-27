@@ -97,6 +97,12 @@
 //!
 //! Check out the [custom_key](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key.rs) example to see how a custom key extractor can be implemented.
 //!
+//! # Add x-ratelimit headers
+//!
+//! By default, `x-ratelimit-after` is enable but if you want to enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining` use [`use_headers`] method
+//!
+//! [`use_headers`]: crate::GovernorConfigBuilder::use_headers()
+//!
 //! # Common pitfalls
 //!
 //! Do not construct the same configuration multiple times, unless explicitly wanted!
@@ -146,6 +152,19 @@ const DEFAULT_BURST_SIZE: u32 = 8;
 /// let config = GovernorConfigBuilder::default()
 ///     .per_second(60)
 ///     .burst_size(10)
+///     .finish()
+///     .unwrap();
+/// ```
+///
+/// with x-ratelimit headers
+///
+/// ```rust
+/// use actix_governor::GovernorConfigBuilder;
+///
+/// let config = GovernorConfigBuilder::default()
+///     .per_second(60)
+///     .burst_size(10)
+///     .use_headers() // Add this
 ///     .finish()
 ///     .unwrap();
 /// ```
@@ -302,6 +321,15 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
         }
     }
 
+    /// Set x-ratelimit headers to response, the headers is
+    /// - `x-ratelimit-limit`       - Request limit
+    /// - `x-ratelimit-remaining`   - The number of requests left for the time window
+    /// - `x-ratelimit-after`       - Number of seconds in which the API will become available after its rate limit has been exceeded
+    /// - `x-ratelimit-whitelisted` - If the request method not in methods, this header will be add it, use [`methods`] to add methods
+    ///
+    /// By default `x-ratelimit-after` is enable, with [`use_headers`] will enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining`
+    ///
+    /// [`methods`]: crate::GovernorConfigBuilder::methods()
     pub fn use_headers(&mut self) -> GovernorConfigBuilder<K, StateInformationMiddleware> {
         GovernorConfigBuilder {
             period: self.period,
