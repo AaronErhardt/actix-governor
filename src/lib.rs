@@ -419,6 +419,29 @@ where
     }
 }
 
+impl<S, B, K> Transform<S, ServiceRequest> for Governor<K, StateInformationMiddleware>
+where
+    K: KeyExtractor,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    B: MessageBody,
+    <S as Service<ServiceRequest>>::Future: Unpin,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type InitError = ();
+    type Transform = GovernorMiddleware<S, K, StateInformationMiddleware>;
+    type Future = future::Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        future::ok(GovernorMiddleware::<S, K, StateInformationMiddleware> {
+            service: Rc::new(RefCell::new(service)),
+            key_extractor: self.key_extractor.clone(),
+            limiter: self.limiter.clone(),
+            methods: self.methods.clone(),
+        })
+    }
+}
+
 pub struct GovernorMiddleware<S, K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
     service: std::rc::Rc<std::cell::RefCell<S>>,
     key_extractor: K,
