@@ -166,7 +166,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone
             period: self.period,
             burst_size: self.burst_size,
             methods: self.methods.clone(),
-            key_extractor: self.key_extractor,
+            key_extractor: self.key_extractor.clone(),
             middleware: self.middleware,
         }
     }
@@ -307,7 +307,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
             period: self.period,
             burst_size: self.burst_size,
             methods: self.methods.to_owned(),
-            key_extractor: self.key_extractor,
+            key_extractor: self.key_extractor.clone(),
             middleware: PhantomData,
         }
     }
@@ -317,7 +317,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
     pub fn finish(&mut self) -> Option<GovernorConfig<K, M>> {
         if self.burst_size != 0 && self.period.as_nanos() != 0 {
             Some(GovernorConfig {
-                key_extractor: self.key_extractor,
+                key_extractor: self.key_extractor.clone(),
                 limiter: Arc::new(
                     RateLimiter::keyed(
                         Quota::with_period(self.period)
@@ -345,7 +345,7 @@ pub struct GovernorConfig<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInsta
 impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone for GovernorConfig<K, M> {
     fn clone(&self) -> Self {
         GovernorConfig {
-            key_extractor: self.key_extractor,
+            key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
             methods: self.methods.clone(),
         }
@@ -390,7 +390,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Governor<K, M> {
     /// Create new governor middleware factory from configuration.
     pub fn new(config: &GovernorConfig<K, M>) -> Self {
         Governor {
-            key_extractor: config.key_extractor,
+            key_extractor: config.key_extractor.clone(),
             limiter: config.limiter.clone(),
             methods: config.methods.clone(),
         }
@@ -412,7 +412,7 @@ where
     fn new_transform(&self, service: S) -> Self::Future {
         future::ok(GovernorMiddleware::<S, K, NoOpMiddleware> {
             service: Rc::new(RefCell::new(service)),
-            key_extractor: self.key_extractor,
+            key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
             methods: self.methods.clone(),
         })

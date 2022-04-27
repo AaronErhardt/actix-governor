@@ -3,7 +3,7 @@ use std::{fmt::Display, hash::Hash, net::IpAddr};
 use actix_web::dev::ServiceRequest;
 
 /// Generic structure of what is needed to extract a rate-limiting key from an incoming request.
-pub trait KeyExtractor: Clone + Copy {
+pub trait KeyExtractor: Clone {
     /// The type of the key.
     type Key: Clone + Hash + Eq;
 
