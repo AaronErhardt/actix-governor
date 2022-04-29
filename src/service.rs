@@ -67,7 +67,7 @@ where
                     let wait_time_str = wait_time.to_string();
                     let body = format!("Too many requests, retry in {}s", wait_time_str);
                     let response = actix_web::HttpResponse::TooManyRequests()
-                        .insert_header((actix_web::http::header::RETRY_AFTER, wait_time_str))
+                        .insert_header(("x-ratelimit-after", wait_time_str))
                         .body(body.clone());
                     future::Either::Left(future::err(
                         error::InternalError::from_response(body, response).into(),
@@ -218,7 +218,9 @@ where
                     let wait_time_str = wait_time.to_string();
                     let body = format!("Too many requests, retry in {}s", wait_time_str);
                     let response = actix_web::HttpResponse::TooManyRequests()
-                        .insert_header((actix_web::http::header::RETRY_AFTER, wait_time_str))
+                        .insert_header(("x-ratelimit-after", wait_time_str))
+                        .insert_header(("x-ratelimit-limit", negative.quota().burst_size().get()))
+                        .insert_header(("x-ratelimit-remaining", 0))
                         .body(body.clone());
                     future::Either::Left(future::err(
                         error::InternalError::from_response(body, response).into(),

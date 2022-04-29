@@ -97,6 +97,12 @@
 //!
 //! Check out the [custom_key](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key.rs) example to see how a custom key extractor can be implemented.
 //!
+//! # Add x-ratelimit headers
+//!
+//! By default, `x-ratelimit-after` is enabled but if you want to enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining` use [`use_headers`] method
+//!
+//! [`use_headers`]: crate::GovernorConfigBuilder::use_headers()
+//!
 //! # Common pitfalls
 //!
 //! Do not construct the same configuration multiple times, unless explicitly wanted!
@@ -149,6 +155,19 @@ const DEFAULT_BURST_SIZE: u32 = 8;
 ///     .finish()
 ///     .unwrap();
 /// ```
+///
+/// with x-ratelimit headers
+///
+/// ```rust
+/// use actix_governor::GovernorConfigBuilder;
+///
+/// let config = GovernorConfigBuilder::default()
+///     .per_second(60)
+///     .burst_size(10)
+///     .use_headers() // Add this
+///     .finish()
+///     .unwrap();
+/// ```
 #[derive(Debug, Eq)]
 pub struct GovernorConfigBuilder<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
     period: Duration,
@@ -166,7 +185,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone
             period: self.period,
             burst_size: self.burst_size,
             methods: self.methods.clone(),
-            key_extractor: self.key_extractor,
+            key_extractor: self.key_extractor.clone(),
             middleware: self.middleware,
         }
     }
@@ -302,12 +321,21 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
         }
     }
 
+    /// Set x-ratelimit headers to response, the headers is
+    /// - `x-ratelimit-limit`       - Request limit
+    /// - `x-ratelimit-remaining`   - The number of requests left for the time window
+    /// - `x-ratelimit-after`       - Number of seconds in which the API will become available after its rate limit has been exceeded
+    /// - `x-ratelimit-whitelisted` - If the request method not in methods, this header will be add it, use [`methods`] to add methods
+    ///
+    /// By default `x-ratelimit-after` is enabled, with [`use_headers`] will enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining`
+    ///
+    /// [`methods`]: crate::GovernorConfigBuilder::methods()
     pub fn use_headers(&mut self) -> GovernorConfigBuilder<K, StateInformationMiddleware> {
         GovernorConfigBuilder {
             period: self.period,
             burst_size: self.burst_size,
             methods: self.methods.to_owned(),
-            key_extractor: self.key_extractor,
+            key_extractor: self.key_extractor.clone(),
             middleware: PhantomData,
         }
     }
@@ -317,7 +345,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
     pub fn finish(&mut self) -> Option<GovernorConfig<K, M>> {
         if self.burst_size != 0 && self.period.as_nanos() != 0 {
             Some(GovernorConfig {
-                key_extractor: self.key_extractor,
+                key_extractor: self.key_extractor.clone(),
                 limiter: Arc::new(
                     RateLimiter::keyed(
                         Quota::with_period(self.period)
@@ -345,7 +373,7 @@ pub struct GovernorConfig<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInsta
 impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone for GovernorConfig<K, M> {
     fn clone(&self) -> Self {
         GovernorConfig {
-            key_extractor: self.key_extractor,
+            key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
             methods: self.methods.clone(),
         }
@@ -390,7 +418,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Governor<K, M> {
     /// Create new governor middleware factory from configuration.
     pub fn new(config: &GovernorConfig<K, M>) -> Self {
         Governor {
-            key_extractor: config.key_extractor,
+            key_extractor: config.key_extractor.clone(),
             limiter: config.limiter.clone(),
             methods: config.methods.clone(),
         }
@@ -405,14 +433,37 @@ where
 {
     type Response = ServiceResponse<B>;
     type Error = Error;
-    type InitError = ();
     type Transform = GovernorMiddleware<S, K, NoOpMiddleware>;
+    type InitError = ();
     type Future = future::Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
         future::ok(GovernorMiddleware::<S, K, NoOpMiddleware> {
             service: Rc::new(RefCell::new(service)),
-            key_extractor: self.key_extractor,
+            key_extractor: self.key_extractor.clone(),
+            limiter: self.limiter.clone(),
+            methods: self.methods.clone(),
+        })
+    }
+}
+
+impl<S, B, K> Transform<S, ServiceRequest> for Governor<K, StateInformationMiddleware>
+where
+    K: KeyExtractor,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
+    B: MessageBody,
+    <S as Service<ServiceRequest>>::Future: Unpin,
+{
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Transform = GovernorMiddleware<S, K, StateInformationMiddleware>;
+    type InitError = ();
+    type Future = future::Ready<Result<Self::Transform, Self::InitError>>;
+
+    fn new_transform(&self, service: S) -> Self::Future {
+        future::ok(GovernorMiddleware::<S, K, StateInformationMiddleware> {
+            service: Rc::new(RefCell::new(service)),
+            key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
             methods: self.methods.clone(),
         })
