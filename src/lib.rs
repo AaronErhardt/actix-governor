@@ -97,6 +97,12 @@
 //!
 //! Check out the [custom_key](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key.rs) example to see how a custom key extractor can be implemented.
 //!
+//! # Add x-ratelimit headers
+//!
+//! By default, `x-ratelimit-after` is enabled but if you want to enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining` use [`use_headers`] method
+//!
+//! [`use_headers`]: crate::GovernorConfigBuilder::use_headers()
+//!
 //! # Common pitfalls
 //!
 //! Do not construct the same configuration multiple times, unless explicitly wanted!
@@ -109,109 +115,29 @@
 mod tests;
 
 use governor::{
-    clock::{Clock, DefaultClock},
+    clock::{DefaultClock, QuantaInstant},
+    middleware::{NoOpMiddleware, RateLimitingMiddleware, StateInformationMiddleware},
     state::keyed::DefaultKeyedStateStore,
     Quota, RateLimiter,
 };
 
-use std::{
-    cell::RefCell,
-    fmt::Display,
-    hash::Hash,
-    net::IpAddr,
-    num::NonZeroU32,
-    rc::Rc,
-    sync::Arc,
-    task::{Context, Poll},
-    time::Duration,
-};
+use std::{cell::RefCell, marker::PhantomData, num::NonZeroU32, rc::Rc, sync::Arc, time::Duration};
 
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::http::Method;
-use actix_web::{body::MessageBody, error, Error};
+use actix_web::{body::MessageBody, Error};
 use futures::future;
+
+mod key_extractor;
+mod service;
+
+type SharedRateLimiter<Key, M> =
+    Arc<RateLimiter<Key, DefaultKeyedStateStore<Key>, DefaultClock, M>>;
+
+pub use key_extractor::{GlobalKeyExtractor, KeyExtractor, PeerIpKeyExtractor};
 
 const DEFAULT_PERIOD: Duration = Duration::from_millis(500);
 const DEFAULT_BURST_SIZE: u32 = 8;
-
-/// Generic structure of what is needed to extract a rate-limiting key from an incoming request.
-pub trait KeyExtractor: Clone + Copy {
-    /// The type of the key.
-    type Key: Clone + Hash + Eq;
-
-    /// The type of the error that can occur if key extraction from the request fails.
-    type KeyExtractionError: Display;
-
-    #[cfg(feature = "log")]
-    /// Name of this extractor (only used in logs).
-    fn name(&self) -> &'static str;
-
-    /// Extraction method
-    fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError>;
-
-    #[cfg(feature = "log")]
-    /// Value of the extracted key (only used in logs).
-    fn key_name(&self, _key: &Self::Key) -> Option<String> {
-        None
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// A [KeyExtractor] that uses peer IP as key. **This is the default key extractor and [it may no do want you want](PeerIpKeyExtractor).**
-///
-/// **Warning:** this key extractor enforces rate limiting based on the **_peer_ IP address**.
-///
-/// This means that if your app is deployed behind a reverse proxy, the peer IP address will _always_ be the proxy's IP address.
-/// In this case, rate limiting will be applied to _all_ incoming requests as if they were from the same user.
-///
-/// If this is not the behavior you want, you may:
-/// - implement your own [KeyExtractor] that tries to get IP from the `Forwarded` or `X-Forwarded-For` headers that most reverse proxies set
-/// - make absolutely sure that you only trust these headers when the peer IP is the IP of your reverse proxy (otherwise any user could set them to fake its IP)
-pub struct PeerIpKeyExtractor;
-
-impl KeyExtractor for PeerIpKeyExtractor {
-    type Key = IpAddr;
-    type KeyExtractionError = &'static str;
-
-    #[cfg(feature = "log")]
-    fn name(&self) -> &'static str {
-        "peer IP"
-    }
-
-    fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
-        req.peer_addr()
-            .map(|socket| socket.ip())
-            .ok_or("Could not extract peer IP address from request")
-    }
-
-    #[cfg(feature = "log")]
-    fn key_name(&self, key: &Self::Key) -> Option<String> {
-        Some(key.to_string())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// A [KeyExtractor] that allow to do rate limiting for all incoming requests. This is useful if you want to hard-limit the HTTP load your app can handle.
-pub struct GlobalKeyExtractor;
-
-impl KeyExtractor for GlobalKeyExtractor {
-    type Key = ();
-    type KeyExtractionError = &'static str;
-
-    #[cfg(feature = "log")]
-    fn name(&self) -> &'static str {
-        "global"
-    }
-
-    fn extract(&self, _req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
-        Ok(())
-    }
-
-    #[cfg(feature = "log")]
-    fn key_name(&self, _key: &Self::Key) -> Option<String> {
-        None
-    }
-}
 
 /// Helper struct for building a configuration for the governor middleware.
 ///
@@ -229,15 +155,54 @@ impl KeyExtractor for GlobalKeyExtractor {
 ///     .finish()
 ///     .unwrap();
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GovernorConfigBuilder<K: KeyExtractor> {
+///
+/// with x-ratelimit headers
+///
+/// ```rust
+/// use actix_governor::GovernorConfigBuilder;
+///
+/// let config = GovernorConfigBuilder::default()
+///     .per_second(60)
+///     .burst_size(10)
+///     .use_headers() // Add this
+///     .finish()
+///     .unwrap();
+/// ```
+#[derive(Debug, Eq)]
+pub struct GovernorConfigBuilder<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
     period: Duration,
     burst_size: u32,
     methods: Option<Vec<Method>>,
     key_extractor: K,
+    middleware: PhantomData<M>,
 }
 
-impl Default for GovernorConfigBuilder<PeerIpKeyExtractor> {
+impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone
+    for GovernorConfigBuilder<K, M>
+{
+    fn clone(&self) -> Self {
+        Self {
+            period: self.period,
+            burst_size: self.burst_size,
+            methods: self.methods.clone(),
+            key_extractor: self.key_extractor.clone(),
+            middleware: self.middleware,
+        }
+    }
+}
+
+impl<K: KeyExtractor + PartialEq, M: RateLimitingMiddleware<QuantaInstant>> PartialEq
+    for GovernorConfigBuilder<K, M>
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.period == other.period
+            && self.burst_size == other.burst_size
+            && self.methods == other.methods
+            && self.key_extractor == other.key_extractor
+    }
+}
+
+impl Default for GovernorConfigBuilder<PeerIpKeyExtractor, NoOpMiddleware> {
     /// The default configuration which is suitable for most services.
     /// Allows burst with up to eight requests and replenishes one element after 500ms, based on peer IP.
     /// The values can be modified by calling other methods on this struct.
@@ -246,40 +211,41 @@ impl Default for GovernorConfigBuilder<PeerIpKeyExtractor> {
     }
 }
 
-impl GovernorConfigBuilder<PeerIpKeyExtractor> {
-    pub const fn const_default() -> Self {
+impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyExtractor, M> {
+    pub fn const_default() -> Self {
         GovernorConfigBuilder {
             period: DEFAULT_PERIOD,
             burst_size: DEFAULT_BURST_SIZE,
             methods: None,
             key_extractor: PeerIpKeyExtractor,
+            middleware: PhantomData,
         }
     }
     /// Set the interval after which one element of the quota is replenished.
     ///
     /// **The interval must not be zero.**
-    pub const fn const_period(mut self, duration: Duration) -> Self {
+    pub fn const_period(mut self, duration: Duration) -> Self {
         self.period = duration;
         self
     }
     /// Set the interval after which one element of the quota is replenished in seconds.
     ///
     /// **The interval must not be zero.**
-    pub const fn const_per_second(mut self, seconds: u64) -> Self {
+    pub fn const_per_second(mut self, seconds: u64) -> Self {
         self.period = Duration::from_secs(seconds);
         self
     }
     /// Set the interval after which one element of the quota is replenished in milliseconds.
     ///
     /// **The interval must not be zero.**
-    pub const fn const_per_millisecond(mut self, milliseconds: u64) -> Self {
+    pub fn const_per_millisecond(mut self, milliseconds: u64) -> Self {
         self.period = Duration::from_millis(milliseconds);
         self
     }
     /// Set the interval after which one element of the quota is replenished in nanoseconds.
     ///
     /// **The interval must not be zero.**
-    pub const fn const_per_nanosecond(mut self, nanoseconds: u64) -> Self {
+    pub fn const_per_nanosecond(mut self, nanoseconds: u64) -> Self {
         self.period = Duration::from_nanos(nanoseconds);
         self
     }
@@ -288,13 +254,13 @@ impl GovernorConfigBuilder<PeerIpKeyExtractor> {
     /// clients have to wait until the elements of the quota are replenished.
     ///
     /// **The burst_size must not be zero.**
-    pub const fn const_burst_size(mut self, burst_size: u32) -> Self {
+    pub fn const_burst_size(mut self, burst_size: u32) -> Self {
         self.burst_size = burst_size;
         self
     }
 }
 
-impl<K: KeyExtractor> GovernorConfigBuilder<K> {
+impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<K, M> {
     /// Set the interval after which one element of the quota is replenished.
     ///
     /// **The interval must not be zero.**
@@ -345,26 +311,49 @@ impl<K: KeyExtractor> GovernorConfigBuilder<K> {
     pub fn key_extractor<K2: KeyExtractor>(
         &mut self,
         key_extractor: K2,
-    ) -> GovernorConfigBuilder<K2> {
+    ) -> GovernorConfigBuilder<K2, M> {
         GovernorConfigBuilder {
             period: self.period,
             burst_size: self.burst_size,
             methods: self.methods.to_owned(),
             key_extractor,
+            middleware: PhantomData,
+        }
+    }
+
+    /// Set x-ratelimit headers to response, the headers is
+    /// - `x-ratelimit-limit`       - Request limit
+    /// - `x-ratelimit-remaining`   - The number of requests left for the time window
+    /// - `x-ratelimit-after`       - Number of seconds in which the API will become available after its rate limit has been exceeded
+    /// - `x-ratelimit-whitelisted` - If the request method not in methods, this header will be add it, use [`methods`] to add methods
+    ///
+    /// By default `x-ratelimit-after` is enabled, with [`use_headers`] will enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining`
+    ///
+    /// [`methods`]: crate::GovernorConfigBuilder::methods()
+    pub fn use_headers(&mut self) -> GovernorConfigBuilder<K, StateInformationMiddleware> {
+        GovernorConfigBuilder {
+            period: self.period,
+            burst_size: self.burst_size,
+            methods: self.methods.to_owned(),
+            key_extractor: self.key_extractor.clone(),
+            middleware: PhantomData,
         }
     }
 
     /// Finish building the configuration and return the configuration for the middleware.
     /// Returns `None` if either burst size or period interval are zero.
-    pub fn finish(&mut self) -> Option<GovernorConfig<K>> {
+    pub fn finish(&mut self) -> Option<GovernorConfig<K, M>> {
         if self.burst_size != 0 && self.period.as_nanos() != 0 {
             Some(GovernorConfig {
-                key_extractor: self.key_extractor,
-                limiter: Arc::new(RateLimiter::keyed(
-                    Quota::with_period(self.period)
-                        .unwrap()
-                        .allow_burst(NonZeroU32::new(self.burst_size).unwrap()),
-                )),
+                key_extractor: self.key_extractor.clone(),
+                limiter: Arc::new(
+                    RateLimiter::keyed(
+                        Quota::with_period(self.period)
+                            .unwrap()
+                            .allow_burst(NonZeroU32::new(self.burst_size).unwrap()),
+                    )
+                    .with_middleware::<M>(),
+                ),
                 methods: self.methods.clone(),
             })
         } else {
@@ -373,15 +362,25 @@ impl<K: KeyExtractor> GovernorConfigBuilder<K> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 /// Configuration for the Governor middleware.
-pub struct GovernorConfig<K: KeyExtractor> {
+pub struct GovernorConfig<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
     key_extractor: K,
-    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock>>,
+    limiter: SharedRateLimiter<K::Key, M>,
     methods: Option<Vec<Method>>,
 }
 
-impl Default for GovernorConfig<PeerIpKeyExtractor> {
+impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone for GovernorConfig<K, M> {
+    fn clone(&self) -> Self {
+        GovernorConfig {
+            key_extractor: self.key_extractor.clone(),
+            limiter: self.limiter.clone(),
+            methods: self.methods.clone(),
+        }
+    }
+}
+
+impl Default for GovernorConfig<PeerIpKeyExtractor, NoOpMiddleware> {
     /// The default configuration which is suitable for most services.
     /// Allows bursts with up to eight requests and replenishes one element after 500ms, based on peer IP.
     fn default() -> Self {
@@ -389,7 +388,7 @@ impl Default for GovernorConfig<PeerIpKeyExtractor> {
     }
 }
 
-impl GovernorConfig<PeerIpKeyExtractor> {
+impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfig<PeerIpKeyExtractor, M> {
     /// A default configuration for security related services.
     /// Allows bursts with up to two requests and replenishes one element after four seconds, based on peer IP.
     ///
@@ -401,6 +400,7 @@ impl GovernorConfig<PeerIpKeyExtractor> {
             burst_size: 2,
             methods: None,
             key_extractor: PeerIpKeyExtractor,
+            middleware: PhantomData,
         }
         .finish()
         .unwrap()
@@ -408,24 +408,24 @@ impl GovernorConfig<PeerIpKeyExtractor> {
 }
 
 /// Governor middleware factory.
-pub struct Governor<K: KeyExtractor> {
+pub struct Governor<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
     key_extractor: K,
-    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock>>,
+    limiter: SharedRateLimiter<K::Key, M>,
     methods: Option<Vec<Method>>,
 }
 
-impl<K: KeyExtractor> Governor<K> {
+impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Governor<K, M> {
     /// Create new governor middleware factory from configuration.
-    pub fn new(config: &GovernorConfig<K>) -> Self {
+    pub fn new(config: &GovernorConfig<K, M>) -> Self {
         Governor {
-            key_extractor: config.key_extractor,
+            key_extractor: config.key_extractor.clone(),
             limiter: config.limiter.clone(),
             methods: config.methods.clone(),
         }
     }
 }
 
-impl<S, B, K> Transform<S, ServiceRequest> for Governor<K>
+impl<S, B, K> Transform<S, ServiceRequest> for Governor<K, NoOpMiddleware>
 where
     K: KeyExtractor,
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
@@ -433,94 +433,46 @@ where
 {
     type Response = ServiceResponse<B>;
     type Error = Error;
+    type Transform = GovernorMiddleware<S, K, NoOpMiddleware>;
     type InitError = ();
-    type Transform = GovernorMiddleware<S, K>;
     type Future = future::Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        future::ok(GovernorMiddleware::<S, K> {
+        future::ok(GovernorMiddleware::<S, K, NoOpMiddleware> {
             service: Rc::new(RefCell::new(service)),
-            key_extractor: self.key_extractor,
+            key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
             methods: self.methods.clone(),
         })
     }
 }
 
-pub struct GovernorMiddleware<S, K: KeyExtractor> {
-    service: std::rc::Rc<std::cell::RefCell<S>>,
-    key_extractor: K,
-    limiter: Arc<RateLimiter<K::Key, DefaultKeyedStateStore<K::Key>, DefaultClock>>,
-    methods: Option<Vec<Method>>,
-}
-
-impl<S, B, K> Service<ServiceRequest> for GovernorMiddleware<S, K>
+impl<S, B, K> Transform<S, ServiceRequest> for Governor<K, StateInformationMiddleware>
 where
     K: KeyExtractor,
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
     B: MessageBody,
+    <S as Service<ServiceRequest>>::Future: Unpin,
 {
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future =
-        future::Either<future::Ready<Result<ServiceResponse<B>, actix_web::Error>>, S::Future>;
+    type Response = ServiceResponse<B>;
+    type Error = Error;
+    type Transform = GovernorMiddleware<S, K, StateInformationMiddleware>;
+    type InitError = ();
+    type Future = future::Ready<Result<Self::Transform, Self::InitError>>;
 
-    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.service.poll_ready(cx)
+    fn new_transform(&self, service: S) -> Self::Future {
+        future::ok(GovernorMiddleware::<S, K, StateInformationMiddleware> {
+            service: Rc::new(RefCell::new(service)),
+            key_extractor: self.key_extractor.clone(),
+            limiter: self.limiter.clone(),
+            methods: self.methods.clone(),
+        })
     }
+}
 
-    fn call(&self, req: ServiceRequest) -> Self::Future {
-        if let Some(configured_methods) = &self.methods {
-            if !configured_methods.contains(req.method()) {
-                // The request method is not configured, we're ignoring this one.
-                let fut = self.service.call(req);
-                return future::Either::Right(fut);
-            }
-        }
-
-        // Use the provided key extractor to extract the rate limiting key from the request.
-        match self.key_extractor.extract(&req) {
-            // Extraction worked, let's check if rate limiting is needed.
-            Ok(key) => match self.limiter.check_key(&key) {
-                Ok(_) => {
-                    let fut = self.service.call(req);
-                    future::Either::Right(fut)
-                }
-
-                Err(negative) => {
-                    let wait_time = negative
-                        .wait_time_from(DefaultClock::default().now())
-                        .as_secs();
-
-                    #[cfg(feature = "log")]
-                    {
-                        let key_name = match self.key_extractor.key_name(&key) {
-                            Some(n) => format!(" [{}]", &n),
-                            None => "".to_owned(),
-                        };
-                        log::info!(
-                            "Rate limit exceeded for {}{}, quota reset in {}s",
-                            self.key_extractor.name(),
-                            key_name,
-                            &wait_time
-                        );
-                    }
-
-                    let wait_time_str = wait_time.to_string();
-                    let body = format!("Too many requests, retry in {}s", wait_time_str);
-                    let response = actix_web::HttpResponse::TooManyRequests()
-                        .insert_header((actix_web::http::header::RETRY_AFTER, wait_time_str))
-                        .body(body.clone());
-                    future::Either::Left(future::err(
-                        error::InternalError::from_response(body, response).into(),
-                    ))
-                }
-            },
-
-            // Extraction failed, stop right now with a HTTP 500 error.
-            Err(e) => {
-                future::Either::Left(future::err(error::ErrorInternalServerError(e.to_string())))
-            }
-        }
-    }
+pub struct GovernorMiddleware<S, K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
+    service: std::rc::Rc<std::cell::RefCell<S>>,
+    key_extractor: K,
+    limiter: SharedRateLimiter<K::Key, M>,
+    methods: Option<Vec<Method>>,
 }
