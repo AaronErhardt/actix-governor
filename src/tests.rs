@@ -108,7 +108,10 @@ async fn test_server() {
     let body = actix_web::body::to_bytes(err_response.into_body())
         .await
         .unwrap();
-    assert_eq!(body, "Too many requests, retry in 0s");
+    assert_eq!(
+        body,
+        "{\"ok\":false,\"error_code\":429,\"description\":\"Too Many Requests: retry after 0s\"}"
+    );
 }
 
 #[actix_rt::test]
@@ -359,7 +362,10 @@ async fn test_server_use_headers() {
     let body = actix_web::body::to_bytes(err_response.into_body())
         .await
         .unwrap();
-    assert_eq!(body, "Too many requests, retry in 0s");
+    assert_eq!(
+        body,
+        "{\"ok\":false,\"error_code\":429,\"description\":\"Too Many Requests: retry after 0s\"}"
+    );
 }
 
 #[actix_rt::test]

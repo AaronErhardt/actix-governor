@@ -64,10 +64,10 @@ where
                         );
                     }
 
-                    let wait_time_str = wait_time.to_string();
-                    let body = format!("Too many requests, retry in {}s", wait_time_str);
+                    let body = format!("{{\"ok\":false,\"error_code\":429,\"description\":\"Too Many Requests: retry after {wait_time}s\"}}");
                     let response = actix_web::HttpResponse::TooManyRequests()
-                        .insert_header(("x-ratelimit-after", wait_time_str))
+                        .insert_header(("content-type", "application/json"))
+                        .insert_header(("x-ratelimit-after", wait_time))
                         .body(body.clone());
                     future::Either::Left(future::err(
                         error::InternalError::from_response(body, response).into(),
@@ -213,10 +213,10 @@ where
                         );
                     }
 
-                    let wait_time_str = wait_time.to_string();
-                    let body = format!("Too many requests, retry in {}s", wait_time_str);
+                    let body = format!("{{\"ok\":false,\"error_code\":429,\"description\":\"Too Many Requests: retry after {wait_time}s\"}}");
                     let response = actix_web::HttpResponse::TooManyRequests()
-                        .insert_header(("x-ratelimit-after", wait_time_str))
+                        .insert_header(("content-type", "application/json"))
+                        .insert_header(("x-ratelimit-after", wait_time))
                         .insert_header(("x-ratelimit-limit", negative.quota().burst_size().get()))
                         .insert_header(("x-ratelimit-remaining", 0))
                         .body(body.clone());
