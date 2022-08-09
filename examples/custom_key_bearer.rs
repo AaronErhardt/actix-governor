@@ -2,6 +2,7 @@ use actix_governor::{Governor, GovernorConfigBuilder, KeyExtractor};
 use actix_web::dev::ServiceRequest;
 use actix_web::{web, App, HttpServer, Responder};
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 struct UserToken;
@@ -22,6 +23,10 @@ impl KeyExtractor for UserToken {
             .and_then(|token| token.strip_prefix("Bearer "))
             .and_then(|token| Some(token.trim().to_owned()))
             .ok_or("You don't have permission to access")
+    }
+
+    fn response_error<T: Display>(&self, err: T) -> actix_web::Error {
+        actix_web::error::ErrorUnauthorized(err.to_string())
     }
 
     #[cfg(feature = "log")]
