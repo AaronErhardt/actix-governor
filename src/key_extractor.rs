@@ -17,7 +17,7 @@ pub trait KeyExtractor: Clone {
     fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError>;
 
     /// Error function, will pass [`Self::KeyExtractionError`] to it to return the response error
-    /// when the [`Self::extract`] faild [Read more]
+    /// when the [`Self::extract`] failed [Read more]
     ///
     /// [Read more]: https://docs.rs/actix-web/4.1.0/actix_web/error/index.html#functions
     fn response_error<T: Display>(&self, err: T) -> actix_web::Error {
