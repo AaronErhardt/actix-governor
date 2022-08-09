@@ -1,6 +1,5 @@
-use std::{fmt::Display, hash::Hash, net::IpAddr};
-
 use actix_web::dev::ServiceRequest;
+use std::{fmt::Display, hash::Hash, net::IpAddr};
 
 /// Generic structure of what is needed to extract a rate-limiting key from an incoming request.
 pub trait KeyExtractor: Clone {
@@ -16,6 +15,14 @@ pub trait KeyExtractor: Clone {
 
     /// Extraction method
     fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError>;
+
+    /// Error function, will pass [`Self::KeyExtractionError`] to it to return the response error
+    /// when the [`Self::extract`] faild [Read more]
+    ///
+    /// [Read more]: https://docs.rs/actix-web/4.1.0/actix_web/error/index.html#functions
+    fn response_error<T: Display>(&self, err: T) -> actix_web::Error {
+        actix_web::error::ErrorInternalServerError(err.to_string())
+    }
 
     #[cfg(feature = "log")]
     /// Value of the extracted key (only used in logs).
