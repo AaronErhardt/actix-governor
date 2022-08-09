@@ -76,7 +76,7 @@ where
             },
 
             // Extraction failed, stop right now with a HTTP 401 error.
-            Err(e) => future::Either::Left(future::err(error::ErrorUnauthorized(e.to_string()))),
+            Err(e) => future::Either::Left(future::err(self.key_extractor.response_error(e))),
         }
     }
 }
@@ -226,8 +226,8 @@ where
                 }
             },
 
-            // Extraction failed, stop right now with a HTTP 401 error.
-            Err(e) => future::Either::Left(future::err(error::ErrorUnauthorized(e.to_string()))),
+            // Extraction failed, stop right now.
+            Err(e) => future::Either::Left(future::err(self.key_extractor.response_error(e))),
         }
     }
 }
