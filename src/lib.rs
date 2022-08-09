@@ -330,6 +330,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
     /// By default `x-ratelimit-after` is enabled, with [`use_headers`] will enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining`
     ///
     /// [`methods`]: crate::GovernorConfigBuilder::methods()
+    /// [`use_headers`]: Self::use_headers
     pub fn use_headers(&mut self) -> GovernorConfigBuilder<K, StateInformationMiddleware> {
         GovernorConfigBuilder {
             period: self.period,
