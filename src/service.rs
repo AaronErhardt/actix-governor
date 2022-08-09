@@ -75,7 +75,7 @@ where
                 }
             },
 
-            // Extraction failed, stop right now with a HTTP 401 error.
+            // Extraction failed, stop right now.
             Err(e) => future::Either::Left(future::err(self.key_extractor.response_error(e))),
         }
     }
