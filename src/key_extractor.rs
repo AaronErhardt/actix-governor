@@ -1,6 +1,7 @@
+use actix_web::{dev::ServiceRequest, http::header::ContentType};
+use governor::clock::{Clock, DefaultClock, QuantaInstant};
+use governor::NotUntil;
 use std::{fmt::Display, hash::Hash, net::IpAddr};
-
-use actix_web::dev::ServiceRequest;
 
 /// Generic structure of what is needed to extract a rate-limiting key from an incoming request.
 pub trait KeyExtractor: Clone {
@@ -16,6 +17,19 @@ pub trait KeyExtractor: Clone {
 
     /// Extraction method
     fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError>;
+
+    /// The content you want to show it when the rate limit is exceeded.<br>
+    /// The [`NotUntil`] will be passed to it and it has enough information.<br>
+    /// You need to return the content and the content type.
+    fn response_error_content(&self, negative: &NotUntil<QuantaInstant>) -> (String, ContentType) {
+        let wait_time = negative
+            .wait_time_from(DefaultClock::default().now())
+            .as_secs();
+        (
+            format!("Too many requests, retry in {}s", wait_time),
+            ContentType::plaintext(),
+        )
+    }
 
     #[cfg(feature = "log")]
     /// Value of the extracted key (only used in logs).
