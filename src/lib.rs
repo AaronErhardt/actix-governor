@@ -97,6 +97,16 @@
 //!
 //! Check out the [custom_key](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key.rs) example to see how a custom key extractor can be implemented.
 //!
+//! # Customize response error
+//!
+//! By default, response error it's [`INTERNAL_SERVER_ERROR`] but if you want to change it you can override [`response_error`] function and return the error as you want
+//!
+//! Check out the [`custom_key_bearer`] example to see how a [`response_error`] can be implemented.
+//!
+//! [`INTERNAL_SERVER_ERROR`]: actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
+//! [`response_error`]: crate::KeyExtractor::response_error
+//! [`custom_key_bearer`]: https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs
+//!
 //! # Add x-ratelimit headers
 //!
 //! By default, `x-ratelimit-after` is enabled but if you want to enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining` use [`use_headers`] method
