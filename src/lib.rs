@@ -99,7 +99,7 @@
 //!
 //! # Customize response error
 //!
-//! By default, response error it's [`INTERNAL_SERVER_ERROR`] but if you want to change it you can override [`response_error`] function and return the error as you want
+//! By default, the response error generates an [`INTERNAL_SERVER_ERROR`] but if you want you can override the [`response_error`] function to return a custom error.
 //!
 //! Check out the [`custom_key_bearer`] example to see how a [`response_error`] can be implemented.
 //!
