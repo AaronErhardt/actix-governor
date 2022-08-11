@@ -37,7 +37,7 @@ impl KeyExtractor for UserToken {
         );
         (json_response, ContentType::json())
     }
-    
+
     fn response_error(&self, err: &'static str) -> actix_web::Error {
         actix_web::error::ErrorUnauthorized(err.to_string())
     }
