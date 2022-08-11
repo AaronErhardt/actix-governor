@@ -99,7 +99,7 @@
 //!
 //! # Customize response error content
 //!
-//! By default, when the rate limit is exceeded the error will show up is `Too many requests, retry in {}s`<br>
+//! By default, when the rate limit is exceeded the error will show up is `Too many requests, retry in {}s`
 //! and the content type is plaintext. If you want to customize the message and content type you can override the [`response_error_content`] function.
 //!
 //! Check out the [`custom_key_bearer`] example to see how a [`response_error_content`] can be implemented

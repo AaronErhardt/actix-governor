@@ -18,8 +18,8 @@ pub trait KeyExtractor: Clone {
     /// Extraction method
     fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError>;
 
-    /// The content you want to show it when the rate limit is exceeded.<br>
-    /// The [`NotUntil`] will be passed to it and it has enough information.<br>
+    /// The content you want to show it when the rate limit is exceeded.
+    /// The [`NotUntil`] will be passed to it and it has enough information.
     /// You need to return the content and the content type.
     fn response_error_content(&self, negative: &NotUntil<QuantaInstant>) -> (String, ContentType) {
         let wait_time = negative
