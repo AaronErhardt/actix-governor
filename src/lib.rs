@@ -97,6 +97,16 @@
 //!
 //! Check out the [custom_key](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key.rs) example to see how a custom key extractor can be implemented.
 //!
+//! # Customize response error content
+//!
+//! By default, when the rate limit is exceeded the error will show up is `Too many requests, retry in {}s`
+//! and the content type is plaintext. If you want to customize the message and content type you can override the [`response_error_content`] function.
+//!
+//! Check out the [`custom_key_bearer`] example to see how a [`response_error_content`] can be implemented
+//!
+//! [`custom_key_bearer`]: https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs
+//! [`response_error_content`]: crate::KeyExtractor::response_error_content
+//!
 //! # Customize response error
 //!
 //! By default, the response error generates an [`INTERNAL_SERVER_ERROR`] but if you want you can override the [`response_error`] function to return a custom error.

@@ -1,6 +1,7 @@
 use actix_governor::{Governor, GovernorConfigBuilder, KeyExtractor};
-use actix_web::dev::ServiceRequest;
-use actix_web::{web, App, HttpServer, Responder};
+use actix_web::{dev::ServiceRequest, http::header::ContentType};
+use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use governor::clock::{Clock, DefaultClock};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
@@ -24,6 +25,19 @@ impl KeyExtractor for UserToken {
             .ok_or("You don't have permission to access")
     }
 
+    fn response_error_content(
+        &self,
+        negative: &governor::NotUntil<governor::clock::QuantaInstant>,
+    ) -> (String, ContentType) {
+        let wait_time = negative
+            .wait_time_from(DefaultClock::default().now())
+            .as_secs();
+        let json_response = format!(
+            r#"{{"code":429, "error": "TooManyRequests", "message": "Too Many Requests", "after": {wait_time}}}"#
+        );
+        (json_response, ContentType::json())
+    }
+    
     fn response_error(&self, err: &'static str) -> actix_web::Error {
         actix_web::error::ErrorUnauthorized(err.to_string())
     }
@@ -35,7 +49,9 @@ impl KeyExtractor for UserToken {
 }
 
 async fn index() -> impl Responder {
-    "Hello world!"
+    HttpResponse::Ok()
+        .content_type(ContentType::json())
+        .body("{\"msg\":\"Hello World!\"}")
 }
 
 #[actix_web::main]
