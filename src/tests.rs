@@ -1,3 +1,4 @@
+use crate::KeyExtractor;
 use actix_http::header::HeaderName;
 use actix_web::{dev::Service, http::StatusCode, web, App, HttpResponse, Responder};
 
@@ -502,4 +503,96 @@ async fn test_method_filter_use_headers() {
         .headers()
         .get(HeaderName::from_static("x-ratelimit-after"))
         .is_none());
+}
+
+#[actix_rt::test]
+async fn test_forbidden_response_error() {
+    use crate::{Governor, GovernorConfigBuilder};
+    use actix_web::test;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct FooKeyExtractor;
+
+    impl KeyExtractor for FooKeyExtractor {
+        type Key = String;
+        type KeyExtractionError = String;
+
+        fn extract(
+            &self,
+            _req: &actix_web::dev::ServiceRequest,
+        ) -> Result<Self::Key, Self::KeyExtractionError> {
+            Err("test".to_owned())
+        }
+
+        fn response_error(&self, err: String) -> actix_web::Error {
+            actix_web::error::ErrorForbidden(err.to_string())
+        }
+    }
+
+    let config = GovernorConfigBuilder::default()
+        .burst_size(2)
+        .per_second(3)
+        .key_extractor(FooKeyExtractor)
+        .finish()
+        .unwrap();
+    let app = test::init_service(
+        App::new()
+            .wrap(Governor::new(&config))
+            .route("/", web::get().to(hello)),
+    )
+    .await;
+
+    // First request
+    let req = test::TestRequest::get().uri("/").to_request();
+    let err_res = app.call(req).await.unwrap_err();
+    assert_eq!(
+        err_res.as_response_error().status_code(),
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[actix_rt::test]
+async fn test_network_authentication_required_response_error() {
+    use crate::{Governor, GovernorConfigBuilder};
+    use actix_web::test;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct FooKeyExtractor;
+
+    impl KeyExtractor for FooKeyExtractor {
+        type Key = String;
+        type KeyExtractionError = String;
+
+        fn extract(
+            &self,
+            _req: &actix_web::dev::ServiceRequest,
+        ) -> Result<Self::Key, Self::KeyExtractionError> {
+            Err("test".to_owned())
+        }
+
+        fn response_error(&self, err: String) -> actix_web::Error {
+            actix_web::error::ErrorNetworkAuthenticationRequired(err.to_string())
+        }
+    }
+
+    let config = GovernorConfigBuilder::default()
+        .burst_size(2)
+        .per_second(3)
+        .key_extractor(FooKeyExtractor)
+        .finish()
+        .unwrap();
+    let app = test::init_service(
+        App::new()
+            .wrap(Governor::new(&config))
+            .route("/", web::get().to(hello)),
+    )
+    .await;
+
+    // First request
+    let req = test::TestRequest::get().uri("/").to_request();
+    let err_res = app.call(req).await.unwrap_err();
+    assert_eq!(
+        err_res.as_response_error().status_code(),
+        StatusCode::NETWORK_AUTHENTICATION_REQUIRED
+    );
 }
