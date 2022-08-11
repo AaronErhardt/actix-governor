@@ -1,8 +1,11 @@
 use crate::KeyExtractor;
-use actix_http::header::HeaderName;
+use actix_http::header::{HeaderName, HeaderValue};
 use actix_web::{
     dev::Service,
-    http::{header::ContentType, StatusCode},
+    http::{
+        header::{self, ContentType},
+        StatusCode,
+    },
     web, App, HttpResponse, Responder,
 };
 
@@ -557,9 +560,16 @@ async fn test_json_error_response() {
     assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
     // Third request
     let err_req = test::TestRequest::get().uri("/").to_request();
-    let err_res = app.call(err_req).await;
-    // TODO: Check of the content type
-    assert!(matches!(err_res.err(), Some(err) if format!("{}", err) == "{\"msg\":\"Test\"}"));
+    let err_res = app.call(err_req).await.unwrap_err();
+    assert_eq!(format!("{}", err_res), "{\"msg\":\"Test\"}".to_owned());
+    assert_eq!(
+        err_res
+            .error_response()
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .unwrap(),
+        HeaderValue::from_static("application/json")
+    );
 }
 
 #[actix_rt::test]
@@ -614,9 +624,16 @@ async fn test_html_error_response() {
     assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
     // Third request
     let err_req = test::TestRequest::get().uri("/").to_request();
-    let err_res = app.call(err_req).await;
-    // TODO: Check of the content type
-    assert!(
-        matches!(err_res.err(), Some(err) if format!("{}", err) == "<!DOCTYPE html><html lang=\"en\"><head></head><body><h1>Rate limit error</h1></body></html>")
+    let err_res = app.call(err_req).await.unwrap_err();
+    assert_eq!(
+        format!("{}", err_res),"<!DOCTYPE html><html lang=\"en\"><head></head><body><h1>Rate limit error</h1></body></html>".to_owned());
+
+    assert_eq!(
+        err_res
+            .error_response()
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .unwrap(),
+        HeaderValue::from_static("text/html; charset=utf-8")
     );
 }
