@@ -20,7 +20,7 @@ pub trait KeyExtractor: Clone {
     /// when the [`Self::extract`] failed [Read more]
     ///
     /// [Read more]: https://docs.rs/actix-web/4.1.0/actix_web/error/index.html#functions
-    fn response_error<T: Display>(&self, err: T) -> actix_web::Error {
+    fn response_error(&self, err: &Self::KeyExtractionError) -> actix_web::Error {
         actix_web::error::ErrorInternalServerError(err.to_string())
     }
 
