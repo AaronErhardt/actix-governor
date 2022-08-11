@@ -74,10 +74,8 @@ where
                 }
             },
 
-            // Extraction failed, stop right now with a HTTP 500 error.
-            Err(e) => {
-                future::Either::Left(future::err(error::ErrorInternalServerError(e.to_string())))
-            }
+            // Extraction failed, stop right now.
+            Err(e) => future::Either::Left(future::err(self.key_extractor.response_error(e))),
         }
     }
 }
@@ -227,10 +225,8 @@ where
                 }
             },
 
-            // Extraction failed, stop right now with a HTTP 500 error.
-            Err(e) => {
-                future::Either::Left(future::err(error::ErrorInternalServerError(e.to_string())))
-            }
+            // Extraction failed, stop right now.
+            Err(e) => future::Either::Left(future::err(self.key_extractor.response_error(e))),
         }
     }
 }

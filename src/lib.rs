@@ -107,6 +107,16 @@
 //! [`custom_key_bearer`]: https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs
 //! [`response_error_content`]: crate::KeyExtractor::response_error_content
 //!
+//! # Customize response error
+//!
+//! By default, the response error generates an [`INTERNAL_SERVER_ERROR`] but if you want you can override the [`response_error`] function to return a custom error.
+//!
+//! Check out the [`custom_key_bearer`] example to see how a [`response_error`] can be implemented.
+//!
+//! [`INTERNAL_SERVER_ERROR`]: actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
+//! [`response_error`]: crate::KeyExtractor::response_error
+//! [`custom_key_bearer`]: https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs
+//!
 //! # Add x-ratelimit headers
 //!
 //! By default, `x-ratelimit-after` is enabled but if you want to enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining` use [`use_headers`] method
@@ -340,6 +350,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
     /// By default `x-ratelimit-after` is enabled, with [`use_headers`] will enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining`
     ///
     /// [`methods`]: crate::GovernorConfigBuilder::methods()
+    /// [`use_headers`]: Self::use_headers
     pub fn use_headers(&mut self) -> GovernorConfigBuilder<K, StateInformationMiddleware> {
         GovernorConfigBuilder {
             period: self.period,

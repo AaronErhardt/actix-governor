@@ -37,6 +37,10 @@ impl KeyExtractor for UserToken {
         );
         (json_response, ContentType::json())
     }
+    
+    fn response_error(&self, err: &'static str) -> actix_web::Error {
+        actix_web::error::ErrorUnauthorized(err.to_string())
+    }
 
     #[cfg(feature = "log")]
     fn key_name(&self, key: &Self::Key) -> Option<String> {

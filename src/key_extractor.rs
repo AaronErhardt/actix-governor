@@ -1,6 +1,7 @@
 use actix_web::{dev::ServiceRequest, http::header::ContentType};
 use governor::clock::{Clock, DefaultClock, QuantaInstant};
 use governor::NotUntil;
+
 use std::{fmt::Display, hash::Hash, net::IpAddr};
 
 /// Generic structure of what is needed to extract a rate-limiting key from an incoming request.
@@ -29,6 +30,14 @@ pub trait KeyExtractor: Clone {
             format!("Too many requests, retry in {}s", wait_time),
             ContentType::plaintext(),
         )
+    }
+
+    /// Error function, will pass [`Self::KeyExtractionError`] to it to return the response error
+    /// when the [`Self::extract`] failed [Read more]
+    ///
+    /// [Read more]: https://docs.rs/actix-web/4.1.0/actix_web/error/index.html#functions
+    fn response_error(&self, err: Self::KeyExtractionError) -> actix_web::Error {
+        actix_web::error::ErrorInternalServerError(err.to_string())
     }
 
     #[cfg(feature = "log")]
