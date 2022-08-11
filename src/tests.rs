@@ -1,5 +1,10 @@
+use crate::KeyExtractor;
 use actix_http::header::HeaderName;
-use actix_web::{dev::Service, http::StatusCode, web, App, HttpResponse, Responder};
+use actix_web::{
+    dev::Service,
+    http::{header::ContentType, StatusCode},
+    web, App, HttpResponse, Responder,
+};
 
 #[test]
 fn builder_test() {
@@ -502,4 +507,116 @@ async fn test_method_filter_use_headers() {
         .headers()
         .get(HeaderName::from_static("x-ratelimit-after"))
         .is_none());
+}
+
+#[actix_rt::test]
+async fn test_json_error_response() {
+    use crate::{Governor, GovernorConfigBuilder};
+    use actix_web::test;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct FooKeyExtractor;
+
+    impl KeyExtractor for FooKeyExtractor {
+        type Key = String;
+        type KeyExtractionError = String;
+
+        fn extract(
+            &self,
+            _req: &actix_web::dev::ServiceRequest,
+        ) -> Result<Self::Key, Self::KeyExtractionError> {
+            Ok("test".to_owned())
+        }
+
+        fn response_error_content(
+            &self,
+            _negative: &governor::NotUntil<governor::clock::QuantaInstant>,
+        ) -> (String, ContentType) {
+            (r#"{"msg":"Test"}"#.to_owned(), ContentType::json())
+        }
+    }
+
+    let config = GovernorConfigBuilder::default()
+        .burst_size(2)
+        .per_second(3)
+        .key_extractor(FooKeyExtractor)
+        .finish()
+        .unwrap();
+    let app = test::init_service(
+        App::new()
+            .wrap(Governor::new(&config))
+            .route("/", web::get().to(hello)),
+    )
+    .await;
+
+    // First request
+    let req = test::TestRequest::get().uri("/").to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
+    // Second request
+    let req = test::TestRequest::get().uri("/").to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
+    // Third request
+    let err_req = test::TestRequest::get().uri("/").to_request();
+    let err_res = app.call(err_req).await;
+    // TODO: Check of the content type
+    assert!(matches!(err_res.err(), Some(err) if format!("{}", err) == "{\"msg\":\"Test\"}"));
+}
+
+#[actix_rt::test]
+async fn test_html_error_response() {
+    use crate::{Governor, GovernorConfigBuilder};
+    use actix_web::test;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct FooKeyExtractor;
+
+    impl KeyExtractor for FooKeyExtractor {
+        type Key = String;
+        type KeyExtractionError = String;
+
+        fn extract(
+            &self,
+            _req: &actix_web::dev::ServiceRequest,
+        ) -> Result<Self::Key, Self::KeyExtractionError> {
+            Ok("test".to_owned())
+        }
+
+        fn response_error_content(
+            &self,
+            _negative: &governor::NotUntil<governor::clock::QuantaInstant>,
+        ) -> (String, ContentType) {
+            (
+                r#"<!DOCTYPE html><html lang="en"><head></head><body><h1>Rate limit error</h1></body></html>"#
+                    .to_owned(),
+                ContentType::html(),
+            )
+        }
+    }
+
+    let config = GovernorConfigBuilder::default()
+        .burst_size(2)
+        .per_second(3)
+        .key_extractor(FooKeyExtractor)
+        .finish()
+        .unwrap();
+    let app = test::init_service(
+        App::new()
+            .wrap(Governor::new(&config))
+            .route("/", web::get().to(hello)),
+    )
+    .await;
+
+    // First request
+    let req = test::TestRequest::get().uri("/").to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
+    // Second request
+    let req = test::TestRequest::get().uri("/").to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
+    // Third request
+    let err_req = test::TestRequest::get().uri("/").to_request();
+    let err_res = app.call(err_req).await;
+    // TODO: Check of the content type
+    assert!(
+        matches!(err_res.err(), Some(err) if format!("{}", err) == "<!DOCTYPE html><html lang=\"en\"><head></head><body><h1>Rate limit error</h1></body></html>")
+    );
 }
