@@ -76,7 +76,7 @@ where
             },
 
             // Extraction failed, stop right now.
-            Err(e) => future::Either::Left(future::err(self.key_extractor.response_error(&e))),
+            Err(e) => future::Either::Left(future::err(self.key_extractor.response_error(e))),
         }
     }
 }
@@ -227,7 +227,7 @@ where
             },
 
             // Extraction failed, stop right now.
-            Err(e) => future::Either::Left(future::err(self.key_extractor.response_error(&e))),
+            Err(e) => future::Either::Left(future::err(self.key_extractor.response_error(e))),
         }
     }
 }

@@ -524,7 +524,7 @@ async fn test_forbidden_response_error() {
             Err("test".to_owned())
         }
 
-        fn response_error(&self, err: &Self::KeyExtractionError) -> actix_web::Error {
+        fn response_error(&self, err: String) -> actix_web::Error {
             actix_web::error::ErrorForbidden(err.to_string())
         }
     }
@@ -570,7 +570,7 @@ async fn test_network_authentication_required_response_error() {
             Err("test".to_owned())
         }
 
-        fn response_error(&self, err: &Self::KeyExtractionError) -> actix_web::Error {
+        fn response_error(&self, err: String) -> actix_web::Error {
             actix_web::error::ErrorNetworkAuthenticationRequired(err.to_string())
         }
     }

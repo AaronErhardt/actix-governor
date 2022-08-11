@@ -24,7 +24,7 @@ impl KeyExtractor for UserToken {
             .ok_or("You don't have permission to access")
     }
 
-    fn response_error(&self, err: &Self::KeyExtractionError) -> actix_web::Error {
+    fn response_error(&self, err: &'static str) -> actix_web::Error {
         actix_web::error::ErrorUnauthorized(err.to_string())
     }
 
