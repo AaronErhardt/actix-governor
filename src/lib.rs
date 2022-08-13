@@ -4,6 +4,7 @@
 //! # Features:
 //!
 //! + Simple to use
+//! + High customizability
 //! + High performance
 //! + Robust yet flexible API
 //! + Actively maintained as part of the [Triox-Project](https://github.com/AaronErhardt/Triox)
@@ -97,25 +98,23 @@
 //!
 //! Check out the [custom_key](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key.rs) example to see how a custom key extractor can be implemented.
 //!
-//! # Customize response error content
+//! # Customize responses
+//! There are two errors that you can customize, they are the error that the request limit is exceeded and
+//! the second is the error that the keys cannot be extracted, let's see how you can customize them
 //!
-//! By default, when the rate limit is exceeded the error will show up is `Too many requests, retry in {}s`
-//! and the content type is plaintext. If you want to customize the message and content type you can override the [`response_error_content`] function.
+//! ## The response of exceeding the rate limit
+//! // TODO
 //!
-//! Check out the [`custom_key_bearer`] example to see how a [`response_error_content`] can be implemented
+//! ## The response when extracting key failed
+//! The response for this error is taken from [actix_governor::KeyExtractor::KeyExtractionError] you can customize it like what is specified [here to return json](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs) (you can make it return what you want)
+//! but it has a simplistic problem that you can't access the request directly, but you can solve it by creating a
+//! `new` method in the struct and passing the request that is given to you is in a method [`KeyExtractor::extract`] to it and do whatever you want with it
 //!
-//! [`custom_key_bearer`]: https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs
-//! [`response_error_content`]: crate::KeyExtractor::response_error_content
+//! You can use [`GlobalKeyExtractionError`] to facilitate the process of returning the error, as it receives the content and returns you a
+//! response containing the content you entered with type `text/plain` and `500 Internal Server Error` status.
 //!
-//! # Customize response error
-//!
-//! By default, the response error generates an [`INTERNAL_SERVER_ERROR`] but if you want you can override the [`response_error`] function to return a custom error.
-//!
-//! Check out the [`custom_key_bearer`] example to see how a [`response_error`] can be implemented.
-//!
-//! [`INTERNAL_SERVER_ERROR`]: actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
-//! [`response_error`]: crate::KeyExtractor::response_error
-//! [`custom_key_bearer`]: https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs
+//! [actix_governor::KeyExtractor::KeyExtractionError]: KeyExtractor::KeyExtractionError
+//! [here to return]: https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs
 //!
 //! # Add x-ratelimit headers
 //!
@@ -154,7 +153,9 @@ mod service;
 type SharedRateLimiter<Key, M> =
     Arc<RateLimiter<Key, DefaultKeyedStateStore<Key>, DefaultClock, M>>;
 
-pub use key_extractor::{GlobalKeyExtractor, KeyExtractor, PeerIpKeyExtractor};
+pub use key_extractor::{
+    GlobalKeyExtractionError, GlobalKeyExtractor, KeyExtractor, PeerIpKeyExtractor,
+};
 
 const DEFAULT_PERIOD: Duration = Duration::from_millis(500);
 const DEFAULT_BURST_SIZE: u32 = 8;

@@ -7,6 +7,28 @@ use std::fmt::{Debug, Display};
 use std::{hash::Hash, net::IpAddr};
 
 /// Generic structure of what is needed to extract a rate-limiting key from an incoming request.
+///
+/// ## Example
+/// ```rust
+/// use actix_governor::{KeyExtractor, GlobalKeyExtractionError};
+/// use actix_web::ResponseError;
+/// use actix_web::dev::ServiceRequest;
+///
+/// #[derive(Clone)]
+/// struct Foo;
+///
+/// // will return 500 error and 'Extract error' as content
+/// impl KeyExtractor for Foo {
+///     type Key = ();
+///     type KeyExtractionError = GlobalKeyExtractionError<&'static str>;
+///
+///     fn extract(&self, _req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
+///         Err(GlobalKeyExtractionError("Extract error"))
+///     }
+/// }
+/// ````
+///
+/// For more see [`custom_key_bearer`](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs) example
 pub trait KeyExtractor: Clone {
     /// The type of the key.
     type Key: Clone + Hash + Eq;
