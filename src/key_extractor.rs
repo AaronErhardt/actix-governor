@@ -44,6 +44,41 @@ pub trait KeyExtractor: Clone {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A [KeyExtractor] that allow to do rate limiting for all incoming requests. This is useful if you want to hard-limit the HTTP load your app can handle.
+pub struct GlobalKeyExtractor;
+
+#[derive(Debug)]
+/// A [KeyExtractor] default error, with 500 server error and plintext response ( a content is .0 )
+pub struct GlobalKeyExtractionError<T: Display + Debug>(pub T);
+
+impl<T: Display + Debug> Display for GlobalKeyExtractionError<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl<T: Display + Debug> ResponseError for GlobalKeyExtractionError<T> {}
+
+impl KeyExtractor for GlobalKeyExtractor {
+    type Key = ();
+    type KeyExtractionError = GlobalKeyExtractionError<&'static str>;
+
+    #[cfg(feature = "log")]
+    fn name(&self) -> &'static str {
+        "global"
+    }
+
+    fn extract(&self, _req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
+        Ok(())
+    }
+
+    #[cfg(feature = "log")]
+    fn key_name(&self, _key: &Self::Key) -> Option<String> {
+        None
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// A [KeyExtractor] that uses peer IP as key. **This is the default key extractor and [it may no do want you want](PeerIpKeyExtractor).**
 ///
 /// **Warning:** this key extractor enforces rate limiting based on the **_peer_ IP address**.
@@ -86,40 +121,5 @@ impl KeyExtractor for PeerIpKeyExtractor {
     #[cfg(feature = "log")]
     fn key_name(&self, key: &Self::Key) -> Option<String> {
         Some(key.to_string())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// A [KeyExtractor] that allow to do rate limiting for all incoming requests. This is useful if you want to hard-limit the HTTP load your app can handle.
-pub struct GlobalKeyExtractor;
-
-#[derive(Debug)]
-/// A [KeyExtractor] default error, with 500 server error and plintext response ( a content is .0 )
-pub struct GlobalKeyExtractionError<T: Display + Debug>(pub T);
-
-impl<T: Display + Debug> Display for GlobalKeyExtractionError<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl<T: Display + Debug> ResponseError for GlobalKeyExtractionError<T> {}
-
-impl KeyExtractor for GlobalKeyExtractor {
-    type Key = ();
-    type KeyExtractionError = GlobalKeyExtractionError<&'static str>;
-
-    #[cfg(feature = "log")]
-    fn name(&self) -> &'static str {
-        "global"
-    }
-
-    fn extract(&self, _req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
-        Ok(())
-    }
-
-    #[cfg(feature = "log")]
-    fn key_name(&self, _key: &Self::Key) -> Option<String> {
-        None
     }
 }
