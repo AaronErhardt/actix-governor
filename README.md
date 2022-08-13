@@ -10,6 +10,7 @@ rate-limiting backed by [governor](https://github.com/antifuchs/governor).
 ## Features:
 
 + Simple to use
++ High customizability
 + High performance
 + Robust yet flexible API
 
