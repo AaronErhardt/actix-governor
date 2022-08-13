@@ -1,15 +1,34 @@
+use std::fmt::Display;
+
 use actix_governor::{Governor, GovernorConfigBuilder, KeyExtractor};
 use actix_web::{dev::ServiceRequest, http::header::ContentType};
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{web, App, HttpResponse, HttpServer, Responder, ResponseError};
 use governor::clock::{Clock, DefaultClock};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 struct UserToken;
 
+#[derive(Debug)]
+struct UserTokenExtractorError;
+
+impl Display for UserTokenExtractorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UserTokenExtractorError")
+    }
+}
+
+impl ResponseError for UserTokenExtractorError {
+    fn error_response(&self) -> HttpResponse<actix_http::body::BoxBody> {
+        HttpResponse::Unauthorized()
+            .content_type(ContentType::json())
+            .body(r#"{ "code": 401, "msg": "You don't have permission to access"}"#)
+    }
+}
+
 impl KeyExtractor for UserToken {
     type Key = String;
-    type KeyExtractionError = &'static str;
+    type KeyExtractionError = UserTokenExtractorError;
 
     #[cfg(feature = "log")]
     fn name(&self) -> &'static str {
@@ -22,7 +41,7 @@ impl KeyExtractor for UserToken {
             .and_then(|token| token.to_str().ok())
             .and_then(|token| token.strip_prefix("Bearer "))
             .and_then(|token| Some(token.trim().to_owned()))
-            .ok_or("You don't have permission to access")
+            .ok_or(Self::KeyExtractionError {})
     }
 
     fn response_error_content(
@@ -36,10 +55,6 @@ impl KeyExtractor for UserToken {
             r#"{{"code":429, "error": "TooManyRequests", "message": "Too Many Requests", "after": {wait_time}}}"#
         );
         (json_response, ContentType::json())
-    }
-
-    fn response_error(&self, err: &'static str) -> actix_web::Error {
-        actix_web::error::ErrorUnauthorized(err.to_string())
     }
 
     #[cfg(feature = "log")]

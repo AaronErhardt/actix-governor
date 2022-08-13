@@ -1,4 +1,6 @@
-use crate::KeyExtractor;
+use std::fmt::Display;
+
+use crate::{GlobalKeyExtractionError, KeyExtractor};
 use actix_http::header::{HeaderName, HeaderValue};
 use actix_web::{
     dev::Service,
@@ -6,7 +8,7 @@ use actix_web::{
         header::{self, ContentType},
         StatusCode,
     },
-    web, App, HttpResponse, Responder,
+    web, App, HttpResponse, Responder, ResponseError,
 };
 
 #[test]
@@ -522,7 +524,7 @@ async fn test_json_error_response() {
 
     impl KeyExtractor for FooKeyExtractor {
         type Key = String;
-        type KeyExtractionError = String;
+        type KeyExtractionError = GlobalKeyExtractionError<String>;
 
         fn extract(
             &self,
@@ -580,19 +582,30 @@ async fn test_forbidden_response_error() {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct FooKeyExtractor;
 
+    #[derive(Debug)]
+    struct FooKeyExtractionError;
+
+    impl Display for FooKeyExtractionError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "test")
+        }
+    }
+
+    impl ResponseError for FooKeyExtractionError {
+        fn status_code(&self) -> StatusCode {
+            StatusCode::FORBIDDEN
+        }
+    }
+
     impl KeyExtractor for FooKeyExtractor {
         type Key = String;
-        type KeyExtractionError = String;
+        type KeyExtractionError = FooKeyExtractionError;
 
         fn extract(
             &self,
             _req: &actix_web::dev::ServiceRequest,
         ) -> Result<Self::Key, Self::KeyExtractionError> {
-            Err("test".to_owned())
-        }
-
-        fn response_error(&self, err: String) -> actix_web::Error {
-            actix_web::error::ErrorForbidden(err.to_string())
+            Err(FooKeyExtractionError {})
         }
     }
 
@@ -628,7 +641,7 @@ async fn test_html_error_response() {
 
     impl KeyExtractor for FooKeyExtractor {
         type Key = String;
-        type KeyExtractionError = String;
+        type KeyExtractionError = GlobalKeyExtractionError<String>;
 
         fn extract(
             &self,
@@ -691,20 +704,30 @@ async fn test_network_authentication_required_response_error() {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct FooKeyExtractor;
+    #[derive(Debug)]
+    struct FooKeyExtractionError;
+
+    impl Display for FooKeyExtractionError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "test")
+        }
+    }
+
+    impl ResponseError for FooKeyExtractionError {
+        fn status_code(&self) -> StatusCode {
+            StatusCode::NETWORK_AUTHENTICATION_REQUIRED
+        }
+    }
 
     impl KeyExtractor for FooKeyExtractor {
         type Key = String;
-        type KeyExtractionError = String;
+        type KeyExtractionError = FooKeyExtractionError;
 
         fn extract(
             &self,
             _req: &actix_web::dev::ServiceRequest,
         ) -> Result<Self::Key, Self::KeyExtractionError> {
-            Err("test".to_owned())
-        }
-
-        fn response_error(&self, err: String) -> actix_web::Error {
-            actix_web::error::ErrorNetworkAuthenticationRequired(err.to_string())
+            Err(FooKeyExtractionError {})
         }
     }
 
