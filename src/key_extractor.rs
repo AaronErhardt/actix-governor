@@ -91,21 +91,9 @@ impl KeyExtractor for GlobalKeyExtractor {
 /// - make absolutely sure that you only trust these headers when the peer IP is the IP of your reverse proxy (otherwise any user could set them to fake its IP)
 pub struct PeerIpKeyExtractor;
 
-#[derive(Debug)]
-/// The error of PeerIpKeyExtractor
-pub struct PeerIpKeyExtractionError;
-
-impl Display for PeerIpKeyExtractionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Could not extract peer IP address from request")
-    }
-}
-
-impl ResponseError for PeerIpKeyExtractionError {}
-
 impl KeyExtractor for PeerIpKeyExtractor {
     type Key = IpAddr;
-    type KeyExtractionError = PeerIpKeyExtractionError;
+    type KeyExtractionError = GlobalKeyExtractionError<&'static str>;
 
     #[cfg(feature = "log")]
     fn name(&self) -> &'static str {
@@ -115,7 +103,9 @@ impl KeyExtractor for PeerIpKeyExtractor {
     fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
         req.peer_addr()
             .map(|socket| socket.ip())
-            .ok_or(Self::KeyExtractionError {})
+            .ok_or(GlobalKeyExtractionError(
+                "Could not extract peer IP address from request",
+            ))
     }
 
     #[cfg(feature = "log")]
