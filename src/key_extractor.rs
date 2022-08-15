@@ -1,5 +1,5 @@
-use actix_web::ResponseError;
 use actix_web::{dev::ServiceRequest, http::header::ContentType};
+use actix_web::{HttpResponse, HttpResponseBuilder, ResponseError};
 use governor::clock::{Clock, DefaultClock, QuantaInstant};
 use governor::NotUntil;
 
@@ -48,14 +48,17 @@ pub trait KeyExtractor: Clone {
     /// The content you want to show it when the rate limit is exceeded.
     /// The [`NotUntil`] will be passed to it and it has enough information.
     /// You need to return the content and the content type.
-    fn response_error_content(&self, negative: &NotUntil<QuantaInstant>) -> (String, ContentType) {
+    fn response_error_content(
+        &self,
+        negative: &NotUntil<QuantaInstant>,
+        mut response: HttpResponseBuilder,
+    ) -> HttpResponse {
         let wait_time = negative
             .wait_time_from(DefaultClock::default().now())
             .as_secs();
-        (
-            format!("Too many requests, retry in {}s", wait_time),
-            ContentType::plaintext(),
-        )
+        response
+            .content_type(ContentType::plaintext())
+            .body(format!("Too many requests, retry in {}s", wait_time))
     }
 
     #[cfg(feature = "log")]
