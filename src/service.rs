@@ -67,7 +67,7 @@ where
                     response_bulider.insert_header(("x-ratelimit-after", wait_time));
                     let response = self
                         .key_extractor
-                        .response_error_content(&negative, response_bulider);
+                        .exceed_rate_limit_response(&negative, response_bulider);
 
                     future::Either::Left(future::err(
                         error::InternalError::from_response("TooManyRequests", response).into(),
@@ -220,7 +220,7 @@ where
                         .insert_header(("x-ratelimit-remaining", 0));
                     let response = self
                         .key_extractor
-                        .response_error_content(&negative, response_bulider);
+                        .exceed_rate_limit_response(&negative, response_bulider);
                     future::Either::Left(future::err(
                         error::InternalError::from_response("TooManyRequests", response).into(),
                     ))

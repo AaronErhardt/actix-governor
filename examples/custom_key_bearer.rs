@@ -32,7 +32,7 @@ impl KeyExtractor for UserToken {
             )
     }
 
-    fn response_error_content(
+    fn exceed_rate_limit_response(
         &self,
         negative: &governor::NotUntil<governor::clock::QuantaInstant>,
         mut response: HttpResponseBuilder,

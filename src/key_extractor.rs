@@ -55,6 +55,10 @@ pub trait KeyExtractor: Clone {
     /// use actix_governor::{KeyExtractor, SimpleKeyExtractionError};
     /// use actix_web::ResponseError;
     /// use actix_web::dev::ServiceRequest;
+    /// use governor::{NotUntil, clock::{Clock, QuantaInstant, DefaultClock}};
+    /// use actix_web::{HttpResponse, HttpResponseBuilder};
+    /// use actix_web::http::header::ContentType;
+    ///
     ///
     /// #[derive(Clone)]
     /// struct Foo;
@@ -68,7 +72,7 @@ pub trait KeyExtractor: Clone {
     ///         Err(SimpleKeyExtractionError::new("Extract error"))
     ///     }
     ///
-    ///     fn response_error_content(
+    ///     fn exceed_rate_limit_response(
     ///             &self,
     ///             negative: &NotUntil<QuantaInstant>,
     ///             mut response: HttpResponseBuilder,
@@ -82,7 +86,7 @@ pub trait KeyExtractor: Clone {
     ///     }
     /// }
     /// ```
-    fn response_error_content(
+    fn exceed_rate_limit_response(
         &self,
         negative: &NotUntil<QuantaInstant>,
         mut response: HttpResponseBuilder,
@@ -238,11 +242,9 @@ impl KeyExtractor for PeerIpKeyExtractor {
     }
 
     fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
-        req.peer_addr()
-            .map(|socket| socket.ip())
-            .ok_or(SimpleKeyExtractionError::new(
-                "Could not extract peer IP address from request",
-            ))
+        req.peer_addr().map(|socket| socket.ip()).ok_or_else(|| {
+            SimpleKeyExtractionError::new("Could not extract peer IP address from request")
+        })
     }
 
     #[cfg(feature = "log")]

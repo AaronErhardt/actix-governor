@@ -533,7 +533,7 @@ async fn test_json_error_response() {
             Ok("test".to_owned())
         }
 
-        fn response_error_content(
+        fn exceed_rate_limit_response(
             &self,
             _negative: &governor::NotUntil<governor::clock::QuantaInstant>,
             mut response: HttpResponseBuilder,
@@ -652,7 +652,7 @@ async fn test_html_error_response() {
             Ok("test".to_owned())
         }
 
-        fn response_error_content(
+        fn exceed_rate_limit_response(
             &self,
             _negative: &governor::NotUntil<governor::clock::QuantaInstant>,
             mut response: HttpResponseBuilder,
