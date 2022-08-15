@@ -2,7 +2,9 @@ use std::fmt::Display;
 
 use actix_governor::{Governor, GovernorConfigBuilder, KeyExtractor};
 use actix_web::{dev::ServiceRequest, http::header::ContentType};
-use actix_web::{web, App, HttpResponse, HttpServer, Responder, ResponseError};
+use actix_web::{
+    web, App, HttpResponse, HttpResponseBuilder, HttpServer, Responder, ResponseError,
+};
 use governor::clock::{Clock, DefaultClock};
 use serde::{Deserialize, Serialize};
 
@@ -47,14 +49,17 @@ impl KeyExtractor for UserToken {
     fn response_error_content(
         &self,
         negative: &governor::NotUntil<governor::clock::QuantaInstant>,
-    ) -> (String, ContentType) {
+        mut response: HttpResponseBuilder,
+    ) -> HttpResponse {
         let wait_time = negative
             .wait_time_from(DefaultClock::default().now())
             .as_secs();
-        let json_response = format!(
-            r#"{{"code":429, "error": "TooManyRequests", "message": "Too Many Requests", "after": {wait_time}}}"#
-        );
-        (json_response, ContentType::json())
+        response.content_type(ContentType::json())
+            .body(
+                format!(
+                    r#"{{"code":429, "error": "TooManyRequests", "message": "Too Many Requests", "after": {wait_time}}}"#
+                )
+            )
     }
 
     #[cfg(feature = "log")]

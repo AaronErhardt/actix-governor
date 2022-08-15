@@ -63,13 +63,14 @@ where
                             &wait_time
                         );
                     }
-                    let (body, content_type) = self.key_extractor.response_error_content(&negative);
-                    let response = actix_web::HttpResponse::TooManyRequests()
-                        .insert_header(content_type)
-                        .insert_header(("x-ratelimit-after", wait_time))
-                        .body(body.clone());
+                    let mut response_bulider = actix_web::HttpResponse::TooManyRequests();
+                    response_bulider.insert_header(("x-ratelimit-after", wait_time));
+                    let response = self
+                        .key_extractor
+                        .response_error_content(&negative, response_bulider);
+
                     future::Either::Left(future::err(
-                        error::InternalError::from_response(body, response).into(),
+                        error::InternalError::from_response("TooManyRequests", response).into(),
                     ))
                 }
             },
@@ -212,15 +213,16 @@ where
                         );
                     }
 
-                    let (body, content_type) = self.key_extractor.response_error_content(&negative);
-                    let response = actix_web::HttpResponse::TooManyRequests()
-                        .insert_header(content_type)
+                    let mut response_bulider = actix_web::HttpResponse::TooManyRequests();
+                    response_bulider
                         .insert_header(("x-ratelimit-after", wait_time))
                         .insert_header(("x-ratelimit-limit", negative.quota().burst_size().get()))
-                        .insert_header(("x-ratelimit-remaining", 0))
-                        .body(body.clone());
+                        .insert_header(("x-ratelimit-remaining", 0));
+                    let response = self
+                        .key_extractor
+                        .response_error_content(&negative, response_bulider);
                     future::Either::Left(future::err(
-                        error::InternalError::from_response(body, response).into(),
+                        error::InternalError::from_response("TooManyRequests", response).into(),
                     ))
                 }
             },
