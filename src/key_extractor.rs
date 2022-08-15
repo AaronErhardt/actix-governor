@@ -1,3 +1,4 @@
+use actix_http::StatusCode;
 use actix_web::{dev::ServiceRequest, http::header::ContentType};
 use actix_web::{HttpResponse, HttpResponseBuilder, ResponseError};
 use governor::clock::{Clock, DefaultClock, QuantaInstant};
@@ -23,10 +24,10 @@ use std::{hash::Hash, net::IpAddr};
 ///     type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
 ///
 ///     fn extract(&self, _req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
-///         Err(SimpleKeyExtractionError("Extract error"))
+///         Err(SimpleKeyExtractionError::new("Extract error"))
 ///     }
 /// }
-/// ````
+/// ```
 ///
 /// For more see [`custom_key_bearer`](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs) example
 pub trait KeyExtractor: Clone {
@@ -48,6 +49,39 @@ pub trait KeyExtractor: Clone {
     /// The content you want to show it when the rate limit is exceeded.
     /// The [`NotUntil`] will be passed to it and it has enough information.
     /// You need to return the content and the content type.
+    ///
+    /// # Example
+    /// ```rust
+    /// use actix_governor::{KeyExtractor, SimpleKeyExtractionError};
+    /// use actix_web::ResponseError;
+    /// use actix_web::dev::ServiceRequest;
+    ///
+    /// #[derive(Clone)]
+    /// struct Foo;
+    ///
+    /// // will return 500 error and 'Extract error' as content
+    /// impl KeyExtractor for Foo {
+    ///     type Key = ();
+    ///     type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
+    ///
+    ///     fn extract(&self, _req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
+    ///         Err(SimpleKeyExtractionError::new("Extract error"))
+    ///     }
+    ///
+    ///     fn response_error_content(
+    ///             &self,
+    ///             negative: &NotUntil<QuantaInstant>,
+    ///             mut response: HttpResponseBuilder,
+    ///         ) -> HttpResponse {
+    ///             let wait_time = negative
+    ///                 .wait_time_from(DefaultClock::default().now())
+    ///                 .as_secs();
+    ///             response
+    ///                 .content_type(ContentType::plaintext())
+    ///                 .body(format!("Too many requests, retry in {}s", wait_time))
+    ///     }
+    /// }
+    /// ```
     fn response_error_content(
         &self,
         negative: &NotUntil<QuantaInstant>,
@@ -73,16 +107,94 @@ pub trait KeyExtractor: Clone {
 pub struct GlobalKeyExtractor;
 
 #[derive(Debug)]
-/// A [KeyExtractor] default error, with 500 server error and plintext response ( a content is .0 )
-pub struct SimpleKeyExtractionError<T: Display + Debug>(pub T);
+/// A simple struct to create  error, by default the status is  500 server error and content-type is plintext
+pub struct SimpleKeyExtractionError<T: Display + Debug> {
+    pub body: T,
+    pub status_code: StatusCode,
+    pub content_type: ContentType,
+}
 
-impl<T: Display + Debug> Display for SimpleKeyExtractionError<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+impl<T: Display + Debug> SimpleKeyExtractionError<T> {
+    /// Create new instance by body
+    ///
+    /// # Example
+    /// ```rust
+    /// use actix_governor::SimpleKeyExtractionError;
+    /// use actix_http::StatusCode;
+    /// use actix_web::http::header::ContentType;
+    ///
+    /// let my_error = SimpleKeyExtractionError::new("Some error content");
+    ///
+    /// assert_eq!(my_error.body, "Some error content");
+    /// assert_eq!(my_error.content_type, ContentType::plaintext());
+    /// assert_eq!(my_error.status_code, StatusCode::INTERNAL_SERVER_ERROR);
+    /// ```
+    pub fn new(body: T) -> Self {
+        Self {
+            body,
+            status_code: StatusCode::INTERNAL_SERVER_ERROR,
+            content_type: ContentType::plaintext(),
+        }
+    }
+
+    /// Set new status code, the default is [`StatusCode::INTERNAL_SERVER_ERROR`]
+    ///
+    /// # Example
+    /// ```rust
+    /// use actix_governor::SimpleKeyExtractionError;
+    /// use actix_http::StatusCode;
+    /// use actix_web::http::header::ContentType;
+    ///
+    /// let my_error = SimpleKeyExtractionError::new("Some error content")
+    ///         .set_status_code(StatusCode::FORBIDDEN);
+    ///
+    /// assert_eq!(my_error.body, "Some error content");
+    /// assert_eq!(my_error.content_type, ContentType::plaintext());
+    /// assert_eq!(my_error.status_code, StatusCode::FORBIDDEN);
+    /// ```
+    pub fn set_status_code(mut self, status_code: StatusCode) -> Self {
+        self.status_code = status_code;
+        Self { ..self }
+    }
+
+    /// Set new content type, the default is `text/plain`
+    ///
+    /// # Example
+    /// ```rust
+    /// use actix_governor::SimpleKeyExtractionError;
+    /// use actix_http::StatusCode;
+    /// use actix_web::http::header::ContentType;
+    ///
+    /// let my_error = SimpleKeyExtractionError::new(r#"{"msg":"Some error content"}"#)
+    ///         .set_content_type(ContentType::json());
+    ///
+    /// assert_eq!(my_error.body, r#"{"msg":"Some error content"}"#);
+    /// assert_eq!(my_error.content_type, ContentType::json());
+    /// assert_eq!(my_error.status_code, StatusCode::INTERNAL_SERVER_ERROR);
+    /// ```
+    pub fn set_content_type(mut self, content_type: ContentType) -> Self {
+        self.content_type = content_type;
+        Self { ..self }
     }
 }
 
-impl<T: Display + Debug> ResponseError for SimpleKeyExtractionError<T> {}
+impl<T: Display + Debug> Display for SimpleKeyExtractionError<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SimpleKeyExtractionError")
+    }
+}
+
+impl<T: Display + Debug> ResponseError for SimpleKeyExtractionError<T> {
+    fn status_code(&self) -> StatusCode {
+        self.status_code
+    }
+
+    fn error_response(&self) -> HttpResponse<actix_http::body::BoxBody> {
+        HttpResponseBuilder::new(self.status_code())
+            .content_type(self.content_type.clone())
+            .body(self.body.to_string())
+    }
+}
 
 impl KeyExtractor for GlobalKeyExtractor {
     type Key = ();
@@ -128,7 +240,7 @@ impl KeyExtractor for PeerIpKeyExtractor {
     fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
         req.peer_addr()
             .map(|socket| socket.ip())
-            .ok_or(SimpleKeyExtractionError(
+            .ok_or(SimpleKeyExtractionError::new(
                 "Could not extract peer IP address from request",
             ))
     }
