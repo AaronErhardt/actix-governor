@@ -1,36 +1,16 @@
-use std::fmt::Display;
-
-use actix_governor::{Governor, GovernorConfigBuilder, KeyExtractor};
+use actix_governor::{Governor, GovernorConfigBuilder, KeyExtractor, SimpleKeyExtractionError};
+use actix_http::StatusCode;
 use actix_web::{dev::ServiceRequest, http::header::ContentType};
-use actix_web::{
-    web, App, HttpResponse, HttpResponseBuilder, HttpServer, Responder, ResponseError,
-};
+use actix_web::{web, App, HttpResponse, HttpResponseBuilder, HttpServer, Responder};
 use governor::clock::{Clock, DefaultClock};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
 struct UserToken;
 
-#[derive(Debug)]
-struct UserTokenExtractorError;
-
-impl Display for UserTokenExtractorError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "UserTokenExtractorError")
-    }
-}
-
-impl ResponseError for UserTokenExtractorError {
-    fn error_response(&self) -> HttpResponse<actix_http::body::BoxBody> {
-        HttpResponse::Unauthorized()
-            .content_type(ContentType::json())
-            .body(r#"{ "code": 401, "msg": "You don't have permission to access"}"#)
-    }
-}
-
 impl KeyExtractor for UserToken {
     type Key = String;
-    type KeyExtractionError = UserTokenExtractorError;
+    type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
 
     #[cfg(feature = "log")]
     fn name(&self) -> &'static str {
@@ -43,7 +23,13 @@ impl KeyExtractor for UserToken {
             .and_then(|token| token.to_str().ok())
             .and_then(|token| token.strip_prefix("Bearer "))
             .and_then(|token| Some(token.trim().to_owned()))
-            .ok_or(Self::KeyExtractionError {})
+            .ok_or(
+                Self::KeyExtractionError::new(
+                    r#"{ "code": 401, "msg": "You don't have permission to access"}"#,
+                )
+                .set_content_type(ContentType::json())
+                .set_status_code(StatusCode::UNAUTHORIZED),
+            )
     }
 
     fn response_error_content(
