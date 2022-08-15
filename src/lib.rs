@@ -110,7 +110,7 @@
 //! but it has a simplistic problem that you can't access the request directly, but you can solve it by creating a
 //! `new` method in the struct and passing the request that is given to you is in a method [`KeyExtractor::extract`] to it and do whatever you want with it
 //!
-//! You can use [`GlobalKeyExtractionError`] to facilitate the process of returning the error, as it receives the content and returns you a
+//! You can use [`SimpleKeyExtractionError`] to facilitate the process of returning the error, as it receives the content and returns you a
 //! response containing the content you entered with type `text/plain` and `500 Internal Server Error` status.
 //!
 //! [actix_governor::KeyExtractor::KeyExtractionError]: KeyExtractor::KeyExtractionError
@@ -154,7 +154,7 @@ type SharedRateLimiter<Key, M> =
     Arc<RateLimiter<Key, DefaultKeyedStateStore<Key>, DefaultClock, M>>;
 
 pub use key_extractor::{
-    GlobalKeyExtractionError, GlobalKeyExtractor, KeyExtractor, PeerIpKeyExtractor,
+    GlobalKeyExtractor, KeyExtractor, PeerIpKeyExtractor, SimpleKeyExtractionError,
 };
 
 const DEFAULT_PERIOD: Duration = Duration::from_millis(500);

@@ -10,7 +10,7 @@ use std::{hash::Hash, net::IpAddr};
 ///
 /// ## Example
 /// ```rust
-/// use actix_governor::{KeyExtractor, GlobalKeyExtractionError};
+/// use actix_governor::{KeyExtractor, SimpleKeyExtractionError};
 /// use actix_web::ResponseError;
 /// use actix_web::dev::ServiceRequest;
 ///
@@ -20,10 +20,10 @@ use std::{hash::Hash, net::IpAddr};
 /// // will return 500 error and 'Extract error' as content
 /// impl KeyExtractor for Foo {
 ///     type Key = ();
-///     type KeyExtractionError = GlobalKeyExtractionError<&'static str>;
+///     type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
 ///
 ///     fn extract(&self, _req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
-///         Err(GlobalKeyExtractionError("Extract error"))
+///         Err(SimpleKeyExtractionError("Extract error"))
 ///     }
 /// }
 /// ````
@@ -74,19 +74,19 @@ pub struct GlobalKeyExtractor;
 
 #[derive(Debug)]
 /// A [KeyExtractor] default error, with 500 server error and plintext response ( a content is .0 )
-pub struct GlobalKeyExtractionError<T: Display + Debug>(pub T);
+pub struct SimpleKeyExtractionError<T: Display + Debug>(pub T);
 
-impl<T: Display + Debug> Display for GlobalKeyExtractionError<T> {
+impl<T: Display + Debug> Display for SimpleKeyExtractionError<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl<T: Display + Debug> ResponseError for GlobalKeyExtractionError<T> {}
+impl<T: Display + Debug> ResponseError for SimpleKeyExtractionError<T> {}
 
 impl KeyExtractor for GlobalKeyExtractor {
     type Key = ();
-    type KeyExtractionError = GlobalKeyExtractionError<&'static str>;
+    type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
 
     #[cfg(feature = "log")]
     fn name(&self) -> &'static str {
@@ -118,7 +118,7 @@ pub struct PeerIpKeyExtractor;
 
 impl KeyExtractor for PeerIpKeyExtractor {
     type Key = IpAddr;
-    type KeyExtractionError = GlobalKeyExtractionError<&'static str>;
+    type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
 
     #[cfg(feature = "log")]
     fn name(&self) -> &'static str {
@@ -128,7 +128,7 @@ impl KeyExtractor for PeerIpKeyExtractor {
     fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
         req.peer_addr()
             .map(|socket| socket.ip())
-            .ok_or(GlobalKeyExtractionError(
+            .ok_or(SimpleKeyExtractionError(
                 "Could not extract peer IP address from request",
             ))
     }

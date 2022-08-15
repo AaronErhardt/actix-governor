@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{GlobalKeyExtractionError, KeyExtractor};
+use crate::{KeyExtractor, SimpleKeyExtractionError};
 use actix_http::header::{HeaderName, HeaderValue};
 use actix_web::{
     dev::Service,
@@ -524,7 +524,7 @@ async fn test_json_error_response() {
 
     impl KeyExtractor for FooKeyExtractor {
         type Key = String;
-        type KeyExtractionError = GlobalKeyExtractionError<String>;
+        type KeyExtractionError = SimpleKeyExtractionError<String>;
 
         fn extract(
             &self,
@@ -643,7 +643,7 @@ async fn test_html_error_response() {
 
     impl KeyExtractor for FooKeyExtractor {
         type Key = String;
-        type KeyExtractionError = GlobalKeyExtractionError<String>;
+        type KeyExtractionError = SimpleKeyExtractionError<String>;
 
         fn extract(
             &self,
