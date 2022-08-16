@@ -103,10 +103,16 @@
 //! the second is the error that the keys cannot be extracted, let's see how you can customize them
 //!
 //! ## The response of exceeding the rate limit
-//! // TODO
+//! The response of this error is taken from [KeyExtractor::exceed_rate_limit_response] The function will give you [HttpResponseBuilder] and return [HttpResponse] and this will give you a great possibility to customize the response, as you can do whatever you want with it.
+//!
+//! Check out the [custom_key_bearer] example.
+//!
+//! [HttpResponseBuilder]: actix_web::HttpResponseBuilder
+//! [HttpResponse]: actix_web::HttpResponse
+//! [custom_key_bearer]: https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs
 //!
 //! ## The response when extracting key failed
-//! The response for this error is taken from [actix_governor::KeyExtractor::KeyExtractionError] you can customize it like what is specified [here to return json](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs) (you can make it return what you want)
+//! The response for this error is taken from [KeyExtractor::KeyExtractionError] you can customize it like what is specified [here to return json](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs) (you can make it return what you want)
 //! but it has a simplistic problem that you can't access the request directly, but you can solve it by creating a
 //! `new` method in the struct and passing the request that is given to you is in a method [`KeyExtractor::extract`] to it and do whatever you want with it
 //!
