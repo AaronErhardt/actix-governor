@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use crate::{KeyExtractor, SimpleKeyExtractionError};
 use actix_http::header::{HeaderName, HeaderValue};
 use actix_web::{
@@ -8,7 +6,7 @@ use actix_web::{
         header::{self, ContentType},
         StatusCode,
     },
-    web, App, HttpResponse, HttpResponseBuilder, Responder, ResponseError,
+    web, App, HttpResponse, HttpResponseBuilder, Responder,
 };
 
 #[test]
@@ -584,30 +582,15 @@ async fn test_forbidden_response_error() {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct FooKeyExtractor;
 
-    #[derive(Debug)]
-    struct FooKeyExtractionError;
-
-    impl Display for FooKeyExtractionError {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "test")
-        }
-    }
-
-    impl ResponseError for FooKeyExtractionError {
-        fn status_code(&self) -> StatusCode {
-            StatusCode::FORBIDDEN
-        }
-    }
-
     impl KeyExtractor for FooKeyExtractor {
         type Key = String;
-        type KeyExtractionError = FooKeyExtractionError;
+        type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
 
         fn extract(
             &self,
             _req: &actix_web::dev::ServiceRequest,
         ) -> Result<Self::Key, Self::KeyExtractionError> {
-            Err(FooKeyExtractionError {})
+            Err(SimpleKeyExtractionError::new("test").set_status_code(StatusCode::FORBIDDEN))
         }
     }
 
@@ -702,30 +685,17 @@ async fn test_network_authentication_required_response_error() {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct FooKeyExtractor;
-    #[derive(Debug)]
-    struct FooKeyExtractionError;
-
-    impl Display for FooKeyExtractionError {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "test")
-        }
-    }
-
-    impl ResponseError for FooKeyExtractionError {
-        fn status_code(&self) -> StatusCode {
-            StatusCode::NETWORK_AUTHENTICATION_REQUIRED
-        }
-    }
 
     impl KeyExtractor for FooKeyExtractor {
         type Key = String;
-        type KeyExtractionError = FooKeyExtractionError;
+        type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
 
         fn extract(
             &self,
             _req: &actix_web::dev::ServiceRequest,
         ) -> Result<Self::Key, Self::KeyExtractionError> {
-            Err(FooKeyExtractionError {})
+            Err(SimpleKeyExtractionError::new("test")
+                .set_status_code(StatusCode::NETWORK_AUTHENTICATION_REQUIRED))
         }
     }
 
