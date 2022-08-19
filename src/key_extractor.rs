@@ -47,9 +47,8 @@ pub trait KeyExtractor: Clone {
     fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError>;
 
     /// The content you want to show it when the rate limit is exceeded.
-    /// The [`NotUntil`] will be passed to it and it has enough information.
-    /// You need to return the content and the content type.
-    ///
+    /// You can calculate the time at which a caller can expect the next positive rate-limiting result by using [`NotUntil`].
+    /// The [`HttpResponseBuilder`] allows you to build a fully customized [`HttpResponse`] in case of an error.
     /// # Example
     /// ```rust
     /// use actix_governor::{KeyExtractor, SimpleKeyExtractionError};
@@ -141,7 +140,7 @@ impl<T: Display + Debug> SimpleKeyExtractionError<T> {
         }
     }
 
-    /// Set new status code, the default is [`StatusCode::INTERNAL_SERVER_ERROR`]
+    /// Set a new status code, the default is [`StatusCode::INTERNAL_SERVER_ERROR`]
     ///
     /// # Example
     /// ```rust
@@ -161,7 +160,7 @@ impl<T: Display + Debug> SimpleKeyExtractionError<T> {
         Self { ..self }
     }
 
-    /// Set new content type, the default is `text/plain`
+    /// Set a new content type, the default is `text/plain`
     ///
     /// # Example
     /// ```rust
