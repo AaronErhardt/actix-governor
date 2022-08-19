@@ -103,7 +103,7 @@
 //! the second is the error that the keys cannot be extracted, let's see how you can customize them
 //!
 //! ## The response of exceeding the rate limit
-//! The response of this error is taken from [KeyExtractor::exceed_rate_limit_response] The function will give you [HttpResponseBuilder] and return [HttpResponse] and this will give you a great possibility to customize the response, as you can do whatever you want with it.
+//! The response of this error is taken from [`KeyExtractor::exceed_rate_limit_response`] it's will give you [HttpResponseBuilder] and return [HttpResponse] and this will give you a great possibility to customize the response, as you can do whatever you want with it.
 //!
 //! Check out the [custom_key_bearer] example.
 //!
@@ -112,13 +112,17 @@
 //! [custom_key_bearer]: https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs
 //!
 //! ## The response when extracting key failed
-//! The response for this error is taken from [KeyExtractor::KeyExtractionError] you can customize it like what is specified [here to return json](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs) (you can make it return what you want)
+//! The response for this error is taken from [`ResponseError::error_response`] of [KeyExtractor::KeyExtractionError] you can customize it like what is specified [here to return json](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs) (you can make it return what you want)
 //! but it has a simplistic problem that you can't access the request directly, but you can solve it by creating a
 //! `new` method in the struct and passing the request that is given to you is in a method [`KeyExtractor::extract`] to it and do whatever you want with it
 //!
 //! You can use [`SimpleKeyExtractionError`] to facilitate the process of returning the error, as it receives the content and returns you a
-//! response containing the content you entered with type `text/plain` and `500 Internal Server Error` status.
+//! response containing the content you entered with type `text/plain` and `500 Internal Server Error` status by default,
+//! you can customize the content type with [`set_content_type`] and the status with [`set_status_code`]
 //!
+//! [`ResponseError::error_response`]: actix_web::error::ResponseError::error_response
+//! [`set_status_code`]: SimpleKeyExtractionError::set_status_code
+//! [`set_content_type`]: SimpleKeyExtractionError::set_content_type
 //! [actix_governor::KeyExtractor::KeyExtractionError]: KeyExtractor::KeyExtractionError
 //! [here to return]: https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_bearer.rs
 //!
