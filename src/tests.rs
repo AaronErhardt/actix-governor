@@ -1,4 +1,4 @@
-use crate::KeyExtractor;
+use crate::{KeyExtractor, SimpleKeyExtractionError};
 use actix_http::header::{HeaderName, HeaderValue};
 use actix_web::{
     dev::Service,
@@ -6,7 +6,7 @@ use actix_web::{
         header::{self, ContentType},
         StatusCode,
     },
-    web, App, HttpResponse, Responder,
+    web, App, HttpResponse, HttpResponseBuilder, Responder,
 };
 
 #[test]
@@ -522,7 +522,7 @@ async fn test_json_error_response() {
 
     impl KeyExtractor for FooKeyExtractor {
         type Key = String;
-        type KeyExtractionError = String;
+        type KeyExtractionError = SimpleKeyExtractionError<String>;
 
         fn extract(
             &self,
@@ -531,11 +531,14 @@ async fn test_json_error_response() {
             Ok("test".to_owned())
         }
 
-        fn response_error_content(
+        fn exceed_rate_limit_response(
             &self,
             _negative: &governor::NotUntil<governor::clock::QuantaInstant>,
-        ) -> (String, ContentType) {
-            (r#"{"msg":"Test"}"#.to_owned(), ContentType::json())
+            mut response: HttpResponseBuilder,
+        ) -> HttpResponse {
+            response
+                .content_type(ContentType::json())
+                .body(r#"{"msg":"Test"}"#)
         }
     }
 
@@ -560,16 +563,15 @@ async fn test_json_error_response() {
     assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
     // Third request
     let err_req = test::TestRequest::get().uri("/").to_request();
-    let err_res = app.call(err_req).await.unwrap_err();
-    assert_eq!(format!("{}", err_res), "{\"msg\":\"Test\"}".to_owned());
+    let err_res: HttpResponse = app.call(err_req).await.unwrap_err().error_response();
     assert_eq!(
-        err_res
-            .error_response()
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .unwrap(),
+        err_res.headers().get(header::CONTENT_TYPE).unwrap(),
         HeaderValue::from_static("application/json")
     );
+    let body = actix_web::body::to_bytes(err_res.into_body())
+        .await
+        .unwrap();
+    assert_eq!(body, "{\"msg\":\"Test\"}".to_owned());
 }
 
 #[actix_rt::test]
@@ -582,17 +584,13 @@ async fn test_forbidden_response_error() {
 
     impl KeyExtractor for FooKeyExtractor {
         type Key = String;
-        type KeyExtractionError = String;
+        type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
 
         fn extract(
             &self,
             _req: &actix_web::dev::ServiceRequest,
         ) -> Result<Self::Key, Self::KeyExtractionError> {
-            Err("test".to_owned())
-        }
-
-        fn response_error(&self, err: String) -> actix_web::Error {
-            actix_web::error::ErrorForbidden(err.to_string())
+            Err(SimpleKeyExtractionError::new("test").set_status_code(StatusCode::FORBIDDEN))
         }
     }
 
@@ -628,7 +626,7 @@ async fn test_html_error_response() {
 
     impl KeyExtractor for FooKeyExtractor {
         type Key = String;
-        type KeyExtractionError = String;
+        type KeyExtractionError = SimpleKeyExtractionError<String>;
 
         fn extract(
             &self,
@@ -637,14 +635,13 @@ async fn test_html_error_response() {
             Ok("test".to_owned())
         }
 
-        fn response_error_content(
+        fn exceed_rate_limit_response(
             &self,
             _negative: &governor::NotUntil<governor::clock::QuantaInstant>,
-        ) -> (String, ContentType) {
-            (
+            mut response: HttpResponseBuilder,
+        ) -> HttpResponse {
+            response.content_type(ContentType::html()).body(
                 r#"<!DOCTYPE html><html lang="en"><head></head><body><h1>Rate limit error</h1></body></html>"#
-                    .to_owned(),
-                ContentType::html(),
             )
         }
     }
@@ -670,18 +667,15 @@ async fn test_html_error_response() {
     assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
     // Third request
     let err_req = test::TestRequest::get().uri("/").to_request();
-    let err_res = app.call(err_req).await.unwrap_err();
+    let err_res = app.call(err_req).await.unwrap_err().error_response();
     assert_eq!(
-        format!("{}", err_res),"<!DOCTYPE html><html lang=\"en\"><head></head><body><h1>Rate limit error</h1></body></html>".to_owned());
-
-    assert_eq!(
-        err_res
-            .error_response()
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .unwrap(),
+        err_res.headers().get(header::CONTENT_TYPE).unwrap(),
         HeaderValue::from_static("text/html; charset=utf-8")
     );
+    let body = actix_web::body::to_bytes(err_res.into_body())
+        .await
+        .unwrap();
+    assert_eq!(body,"<!DOCTYPE html><html lang=\"en\"><head></head><body><h1>Rate limit error</h1></body></html>".to_owned());
 }
 
 #[actix_rt::test]
@@ -694,17 +688,14 @@ async fn test_network_authentication_required_response_error() {
 
     impl KeyExtractor for FooKeyExtractor {
         type Key = String;
-        type KeyExtractionError = String;
+        type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
 
         fn extract(
             &self,
             _req: &actix_web::dev::ServiceRequest,
         ) -> Result<Self::Key, Self::KeyExtractionError> {
-            Err("test".to_owned())
-        }
-
-        fn response_error(&self, err: String) -> actix_web::Error {
-            actix_web::error::ErrorNetworkAuthenticationRequired(err.to_string())
+            Err(SimpleKeyExtractionError::new("test")
+                .set_status_code(StatusCode::NETWORK_AUTHENTICATION_REQUIRED))
         }
     }
 

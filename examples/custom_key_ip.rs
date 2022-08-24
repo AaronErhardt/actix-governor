@@ -1,4 +1,4 @@
-use actix_governor::{Governor, GovernorConfigBuilder, KeyExtractor};
+use actix_governor::{Governor, GovernorConfigBuilder, KeyExtractor, SimpleKeyExtractionError};
 use actix_web::dev::ServiceRequest;
 use actix_web::{web, App, HttpServer, Responder};
 use std::net::{IpAddr, SocketAddr};
@@ -9,7 +9,8 @@ struct RealIpKeyExtractor;
 
 impl KeyExtractor for RealIpKeyExtractor {
     type Key = IpAddr;
-    type KeyExtractionError = &'static str;
+
+    type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
 
     #[cfg(feature = "log")]
     fn name(&self) -> &'static str {
@@ -30,20 +31,31 @@ impl KeyExtractor for RealIpKeyExtractor {
             // The request is coming from the reverse proxy, we can trust the `Forwarded` or `X-Forwarded-For` headers
             Some(peer) if peer == reverse_proxy_ip => connection_info
                 .realip_remote_addr()
-                .ok_or("Could not extract real IP address from request")
+                .ok_or(SimpleKeyExtractionError::new(
+                    "Could not extract real IP address from request",
+                ))
                 .and_then(|str| {
                     SocketAddr::from_str(str)
                         .map(|socket| socket.ip())
                         .or_else(|_| IpAddr::from_str(str))
-                        .map_err(|_| "Could not extract real IP address from request")
+                        .map_err(|_| {
+                            SimpleKeyExtractionError::new(
+                                "Could not extract real IP address from request",
+                            )
+                        })
                 }),
             // The request is not coming from the reverse proxy, we use peer IP
             _ => connection_info
                 .peer_addr()
-                .ok_or("Could not extract peer IP address from request")
+                .ok_or(SimpleKeyExtractionError::new(
+                    "Could not extract peer IP address from request",
+                ))
                 .and_then(|str| {
-                    SocketAddr::from_str(str)
-                        .map_err(|_| "Could not extract peer IP address from request")
+                    SocketAddr::from_str(str).map_err(|_| {
+                        SimpleKeyExtractionError::new(
+                            "Could not extract peer IP address from request",
+                        )
+                    })
                 })
                 .map(|socket| socket.ip()),
         }

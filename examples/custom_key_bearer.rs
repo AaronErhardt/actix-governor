@@ -1,6 +1,7 @@
-use actix_governor::{Governor, GovernorConfigBuilder, KeyExtractor};
+use actix_governor::{Governor, GovernorConfigBuilder, KeyExtractor, SimpleKeyExtractionError};
+use actix_http::StatusCode;
 use actix_web::{dev::ServiceRequest, http::header::ContentType};
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{web, App, HttpResponse, HttpResponseBuilder, HttpServer, Responder};
 use governor::clock::{Clock, DefaultClock};
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +10,7 @@ struct UserToken;
 
 impl KeyExtractor for UserToken {
     type Key = String;
-    type KeyExtractionError = &'static str;
+    type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
 
     #[cfg(feature = "log")]
     fn name(&self) -> &'static str {
@@ -22,24 +23,29 @@ impl KeyExtractor for UserToken {
             .and_then(|token| token.to_str().ok())
             .and_then(|token| token.strip_prefix("Bearer "))
             .and_then(|token| Some(token.trim().to_owned()))
-            .ok_or("You don't have permission to access")
+            .ok_or(
+                Self::KeyExtractionError::new(
+                    r#"{ "code": 401, "msg": "You don't have permission to access"}"#,
+                )
+                .set_content_type(ContentType::json())
+                .set_status_code(StatusCode::UNAUTHORIZED),
+            )
     }
 
-    fn response_error_content(
+    fn exceed_rate_limit_response(
         &self,
         negative: &governor::NotUntil<governor::clock::QuantaInstant>,
-    ) -> (String, ContentType) {
+        mut response: HttpResponseBuilder,
+    ) -> HttpResponse {
         let wait_time = negative
             .wait_time_from(DefaultClock::default().now())
             .as_secs();
-        let json_response = format!(
-            r#"{{"code":429, "error": "TooManyRequests", "message": "Too Many Requests", "after": {wait_time}}}"#
-        );
-        (json_response, ContentType::json())
-    }
-
-    fn response_error(&self, err: &'static str) -> actix_web::Error {
-        actix_web::error::ErrorUnauthorized(err.to_string())
+        response.content_type(ContentType::json())
+            .body(
+                format!(
+                    r#"{{"code":429, "error": "TooManyRequests", "message": "Too Many Requests", "after": {wait_time}}}"#
+                )
+            )
     }
 
     #[cfg(feature = "log")]
