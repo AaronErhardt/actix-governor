@@ -3,7 +3,6 @@ use actix_web::http::header::{HeaderName, HeaderValue};
 use actix_web::{body::MessageBody, error, Error};
 use futures::future;
 use governor::clock::{Clock, DefaultClock};
-use governor::middleware::{NoOpMiddleware, StateInformationMiddleware};
 
 use std::future::Future;
 use std::marker::Unpin;
@@ -12,7 +11,7 @@ use std::task::{Context, Poll};
 
 use crate::{GovernorMiddleware, KeyExtractor};
 
-impl<S, B, K> Service<ServiceRequest> for GovernorMiddleware<S, K, NoOpMiddleware>
+impl<S, B, K> Service<ServiceRequest> for GovernorMiddleware<S, K>
 where
     K: KeyExtractor,
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
@@ -146,87 +145,6 @@ where
                 }
                 Err(err) => Err(err),
             }),
-        }
-    }
-}
-
-/// Implementation using rate limit headers
-impl<S, B, K> Service<ServiceRequest> for GovernorMiddleware<S, K, StateInformationMiddleware>
-where
-    K: KeyExtractor,
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
-    B: MessageBody,
-    S::Future: Unpin,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future = future::Either<
-        future::Ready<Result<ServiceResponse<B>, actix_web::Error>>,
-        future::Either<RateLimitHeaderFut<S::Future>, WhitelistedHeaderFut<S::Future>>,
-    >;
-
-    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.service.poll_ready(cx)
-    }
-
-    fn call(&self, req: ServiceRequest) -> Self::Future {
-        if let Some(configured_methods) = &self.methods {
-            if !configured_methods.contains(req.method()) {
-                // The request method is not configured, we're ignoring this one.
-                let fut = self.service.call(req);
-                return future::Either::Right(future::Either::Right(WhitelistedHeaderFut {
-                    future: fut,
-                }));
-            }
-        }
-
-        // Use the provided key extractor to extract the rate limiting key from the request.
-        match self.key_extractor.extract(&req) {
-            // Extraction worked, let's check if rate limiting is needed.
-            Ok(key) => match self.limiter.check_key(&key) {
-                Ok(snapshot) => {
-                    let fut = self.service.call(req);
-                    future::Either::Right(future::Either::Left(RateLimitHeaderFut {
-                        future: fut,
-                        burst_size: snapshot.quota().burst_size().get(),
-                        remaining_burst_capacity: snapshot.remaining_burst_capacity(),
-                    }))
-                }
-
-                Err(negative) => {
-                    let wait_time = negative
-                        .wait_time_from(DefaultClock::default().now())
-                        .as_secs();
-
-                    #[cfg(feature = "log")]
-                    {
-                        let key_name = match self.key_extractor.key_name(&key) {
-                            Some(n) => format!(" [{}]", &n),
-                            None => "".to_owned(),
-                        };
-                        log::info!(
-                            "Rate limit exceeded for {}{}, quota reset in {}s",
-                            self.key_extractor.name(),
-                            key_name,
-                            &wait_time
-                        );
-                    }
-
-                    let (body, content_type) = self.key_extractor.response_error_content(&negative);
-                    let response = actix_web::HttpResponse::TooManyRequests()
-                        .insert_header(content_type)
-                        .insert_header(("x-ratelimit-after", wait_time))
-                        .insert_header(("x-ratelimit-limit", negative.quota().burst_size().get()))
-                        .insert_header(("x-ratelimit-remaining", 0))
-                        .body(body.clone());
-                    future::Either::Left(future::err(
-                        error::InternalError::from_response(body, response).into(),
-                    ))
-                }
-            },
-
-            // Extraction failed, stop right now.
-            Err(e) => future::Either::Left(future::err(self.key_extractor.response_error(e))),
         }
     }
 }
