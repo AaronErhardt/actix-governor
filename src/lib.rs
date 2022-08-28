@@ -134,14 +134,9 @@
 #[cfg(test)]
 mod tests;
 
-use governor::{
-    clock::{DefaultClock, QuantaInstant},
-    middleware::{NoOpMiddleware, RateLimitingMiddleware, StateInformationMiddleware},
-    state::keyed::DefaultKeyedStateStore,
-    Quota, RateLimiter,
-};
+use governor::{clock::DefaultClock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
 
-use std::{cell::RefCell, marker::PhantomData, num::NonZeroU32, rc::Rc, sync::Arc, time::Duration};
+use std::{cell::RefCell, num::NonZeroU32, rc::Rc, sync::Arc, time::Duration};
 
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::http::Method;
@@ -151,8 +146,7 @@ use futures::future;
 mod key_extractor;
 mod service;
 
-type SharedRateLimiter<Key, M> =
-    Arc<RateLimiter<Key, DefaultKeyedStateStore<Key>, DefaultClock, M>>;
+type SharedRateLimiter<Key> = Arc<RateLimiter<Key, DefaultKeyedStateStore<Key>, DefaultClock>>;
 
 pub use key_extractor::{GlobalKeyExtractor, KeyExtractor, PeerIpKeyExtractor};
 
@@ -189,31 +183,25 @@ const DEFAULT_BURST_SIZE: u32 = 8;
 ///     .unwrap();
 /// ```
 #[derive(Debug, Eq)]
-pub struct GovernorConfigBuilder<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
+pub struct GovernorConfigBuilder<K: KeyExtractor> {
     period: Duration,
     burst_size: u32,
     methods: Option<Vec<Method>>,
     key_extractor: K,
-    middleware: PhantomData<M>,
 }
 
-impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone
-    for GovernorConfigBuilder<K, M>
-{
+impl<K: KeyExtractor> Clone for GovernorConfigBuilder<K> {
     fn clone(&self) -> Self {
         Self {
             period: self.period,
             burst_size: self.burst_size,
             methods: self.methods.clone(),
             key_extractor: self.key_extractor.clone(),
-            middleware: self.middleware,
         }
     }
 }
 
-impl<K: KeyExtractor + PartialEq, M: RateLimitingMiddleware<QuantaInstant>> PartialEq
-    for GovernorConfigBuilder<K, M>
-{
+impl<K: KeyExtractor + PartialEq> PartialEq for GovernorConfigBuilder<K> {
     fn eq(&self, other: &Self) -> bool {
         self.period == other.period
             && self.burst_size == other.burst_size
@@ -222,7 +210,7 @@ impl<K: KeyExtractor + PartialEq, M: RateLimitingMiddleware<QuantaInstant>> Part
     }
 }
 
-impl Default for GovernorConfigBuilder<PeerIpKeyExtractor, NoOpMiddleware> {
+impl Default for GovernorConfigBuilder<PeerIpKeyExtractor> {
     /// The default configuration which is suitable for most services.
     /// Allows burst with up to eight requests and replenishes one element after 500ms, based on peer IP.
     /// The values can be modified by calling other methods on this struct.
@@ -231,14 +219,13 @@ impl Default for GovernorConfigBuilder<PeerIpKeyExtractor, NoOpMiddleware> {
     }
 }
 
-impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyExtractor, M> {
+impl GovernorConfigBuilder<PeerIpKeyExtractor> {
     pub fn const_default() -> Self {
         GovernorConfigBuilder {
             period: DEFAULT_PERIOD,
             burst_size: DEFAULT_BURST_SIZE,
             methods: None,
             key_extractor: PeerIpKeyExtractor,
-            middleware: PhantomData,
         }
     }
     /// Set the interval after which one element of the quota is replenished.
@@ -280,7 +267,7 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyEx
     }
 }
 
-impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<K, M> {
+impl<K: KeyExtractor> GovernorConfigBuilder<K> {
     /// Set the interval after which one element of the quota is replenished.
     ///
     /// **The interval must not be zero.**
@@ -331,13 +318,12 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
     pub fn key_extractor<K2: KeyExtractor>(
         &mut self,
         key_extractor: K2,
-    ) -> GovernorConfigBuilder<K2, M> {
+    ) -> GovernorConfigBuilder<K2> {
         GovernorConfigBuilder {
             period: self.period,
             burst_size: self.burst_size,
             methods: self.methods.to_owned(),
             key_extractor,
-            middleware: PhantomData,
         }
     }
 
@@ -351,30 +337,26 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
     ///
     /// [`methods`]: crate::GovernorConfigBuilder::methods()
     /// [`use_headers`]: Self::use_headers
-    pub fn use_headers(&mut self) -> GovernorConfigBuilder<K, StateInformationMiddleware> {
+    pub fn use_headers(&mut self) -> GovernorConfigBuilder<K> {
         GovernorConfigBuilder {
             period: self.period,
             burst_size: self.burst_size,
             methods: self.methods.to_owned(),
             key_extractor: self.key_extractor.clone(),
-            middleware: PhantomData,
         }
     }
 
     /// Finish building the configuration and return the configuration for the middleware.
     /// Returns `None` if either burst size or period interval are zero.
-    pub fn finish(&mut self) -> Option<GovernorConfig<K, M>> {
+    pub fn finish(&mut self) -> Option<GovernorConfig<K>> {
         if self.burst_size != 0 && self.period.as_nanos() != 0 {
             Some(GovernorConfig {
                 key_extractor: self.key_extractor.clone(),
-                limiter: Arc::new(
-                    RateLimiter::keyed(
-                        Quota::with_period(self.period)
-                            .unwrap()
-                            .allow_burst(NonZeroU32::new(self.burst_size).unwrap()),
-                    )
-                    .with_middleware::<M>(),
-                ),
+                limiter: Arc::new(RateLimiter::keyed(
+                    Quota::with_period(self.period)
+                        .unwrap()
+                        .allow_burst(NonZeroU32::new(self.burst_size).unwrap()),
+                )),
                 methods: self.methods.clone(),
             })
         } else {
@@ -385,13 +367,13 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
 
 #[derive(Debug)]
 /// Configuration for the Governor middleware.
-pub struct GovernorConfig<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
+pub struct GovernorConfig<K: KeyExtractor> {
     key_extractor: K,
-    limiter: SharedRateLimiter<K::Key, M>,
+    limiter: SharedRateLimiter<K::Key>,
     methods: Option<Vec<Method>>,
 }
 
-impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone for GovernorConfig<K, M> {
+impl<K: KeyExtractor> Clone for GovernorConfig<K> {
     fn clone(&self) -> Self {
         GovernorConfig {
             key_extractor: self.key_extractor.clone(),
@@ -401,7 +383,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone for Govern
     }
 }
 
-impl Default for GovernorConfig<PeerIpKeyExtractor, NoOpMiddleware> {
+impl Default for GovernorConfig<PeerIpKeyExtractor> {
     /// The default configuration which is suitable for most services.
     /// Allows bursts with up to eight requests and replenishes one element after 500ms, based on peer IP.
     fn default() -> Self {
@@ -409,7 +391,7 @@ impl Default for GovernorConfig<PeerIpKeyExtractor, NoOpMiddleware> {
     }
 }
 
-impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfig<PeerIpKeyExtractor, M> {
+impl GovernorConfig<PeerIpKeyExtractor> {
     /// A default configuration for security related services.
     /// Allows bursts with up to two requests and replenishes one element after four seconds, based on peer IP.
     ///
@@ -421,7 +403,6 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfig<PeerIpKeyExtractor
             burst_size: 2,
             methods: None,
             key_extractor: PeerIpKeyExtractor,
-            middleware: PhantomData,
         }
         .finish()
         .unwrap()
@@ -429,15 +410,15 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfig<PeerIpKeyExtractor
 }
 
 /// Governor middleware factory.
-pub struct Governor<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
+pub struct Governor<K: KeyExtractor> {
     key_extractor: K,
-    limiter: SharedRateLimiter<K::Key, M>,
+    limiter: SharedRateLimiter<K::Key>,
     methods: Option<Vec<Method>>,
 }
 
-impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Governor<K, M> {
+impl<K: KeyExtractor> Governor<K> {
     /// Create new governor middleware factory from configuration.
-    pub fn new(config: &GovernorConfig<K, M>) -> Self {
+    pub fn new(config: &GovernorConfig<K>) -> Self {
         Governor {
             key_extractor: config.key_extractor.clone(),
             limiter: config.limiter.clone(),
@@ -446,7 +427,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Governor<K, M> {
     }
 }
 
-impl<S, B, K> Transform<S, ServiceRequest> for Governor<K, NoOpMiddleware>
+impl<S, B, K> Transform<S, ServiceRequest> for Governor<K>
 where
     K: KeyExtractor,
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
@@ -454,12 +435,12 @@ where
 {
     type Response = ServiceResponse<B>;
     type Error = Error;
-    type Transform = GovernorMiddleware<S, K, NoOpMiddleware>;
+    type Transform = GovernorMiddleware<S, K>;
     type InitError = ();
     type Future = future::Ready<Result<Self::Transform, Self::InitError>>;
 
     fn new_transform(&self, service: S) -> Self::Future {
-        future::ok(GovernorMiddleware::<S, K, NoOpMiddleware> {
+        future::ok(GovernorMiddleware::<S, K> {
             service: Rc::new(RefCell::new(service)),
             key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
@@ -468,32 +449,9 @@ where
     }
 }
 
-impl<S, B, K> Transform<S, ServiceRequest> for Governor<K, StateInformationMiddleware>
-where
-    K: KeyExtractor,
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
-    B: MessageBody,
-    <S as Service<ServiceRequest>>::Future: Unpin,
-{
-    type Response = ServiceResponse<B>;
-    type Error = Error;
-    type Transform = GovernorMiddleware<S, K, StateInformationMiddleware>;
-    type InitError = ();
-    type Future = future::Ready<Result<Self::Transform, Self::InitError>>;
-
-    fn new_transform(&self, service: S) -> Self::Future {
-        future::ok(GovernorMiddleware::<S, K, StateInformationMiddleware> {
-            service: Rc::new(RefCell::new(service)),
-            key_extractor: self.key_extractor.clone(),
-            limiter: self.limiter.clone(),
-            methods: self.methods.clone(),
-        })
-    }
-}
-
-pub struct GovernorMiddleware<S, K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
+pub struct GovernorMiddleware<S, K: KeyExtractor> {
     service: std::rc::Rc<std::cell::RefCell<S>>,
     key_extractor: K,
-    limiter: SharedRateLimiter<K::Key, M>,
+    limiter: SharedRateLimiter<K::Key>,
     methods: Option<Vec<Method>>,
 }
