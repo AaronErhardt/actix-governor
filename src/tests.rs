@@ -257,31 +257,27 @@ async fn test_server_use_headers() {
         .peer_addr(addr)
         .uri("/")
         .to_request();
-    let test = app.call(req).await.unwrap_err();
-    let err_response: HttpResponse = test.error_response();
-    assert_eq!(err_response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let test = app.call(req).await.unwrap();
+    assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
-        err_response
-            .headers()
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
             .unwrap(),
         "0"
     );
     assert_eq!(
-        err_response
-            .headers()
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-limit"))
             .unwrap(),
         "2"
     );
     assert_eq!(
-        err_response
-            .headers()
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-remaining"))
             .unwrap(),
         "0"
     );
-    assert!(err_response
+    assert!(test
         .headers()
         .get(HeaderName::from_static("x-ratelimit-whitelisted"))
         .is_none());
@@ -323,38 +319,32 @@ async fn test_server_use_headers() {
         .peer_addr(addr)
         .uri("/")
         .to_request();
-    let test = app.call(req).await.unwrap_err();
-    let err_response: HttpResponse = test.error_response();
-    assert_eq!(err_response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let test = app.call(req).await.unwrap();
+    assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
-        err_response
-            .headers()
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
             .unwrap(),
         "0"
     );
     assert_eq!(
-        err_response
-            .headers()
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-limit"))
             .unwrap(),
         "2"
     );
     assert_eq!(
-        err_response
-            .headers()
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-remaining"))
             .unwrap(),
         "0"
     );
-    assert!(err_response
+    assert!(test
         .headers()
         .get(HeaderName::from_static("x-ratelimit-whitelisted"))
         .is_none());
 
-    let body = actix_web::body::to_bytes(err_response.into_body())
-        .await
-        .unwrap();
+    let body = actix_web::body::to_bytes(test.into_body()).await.unwrap();
     assert_eq!(body, "Too many requests, retry in 0s");
 }
 
@@ -443,31 +433,27 @@ async fn test_method_filter_use_headers() {
         .peer_addr(addr)
         .uri("/")
         .to_request();
-    let test = app.call(req).await.unwrap_err();
-    let err_response: HttpResponse = test.error_response();
-    assert_eq!(err_response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let test = app.call(req).await.unwrap();
+    assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
-        err_response
-            .headers()
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
             .unwrap(),
         "0"
     );
     assert_eq!(
-        err_response
-            .headers()
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-limit"))
             .unwrap(),
         "2"
     );
     assert_eq!(
-        err_response
-            .headers()
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-remaining"))
             .unwrap(),
         "0"
     );
-    assert!(err_response
+    assert!(test
         .headers()
         .get(HeaderName::from_static("x-ratelimit-whitelisted"))
         .is_none());

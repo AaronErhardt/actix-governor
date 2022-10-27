@@ -493,7 +493,7 @@ where
     B: MessageBody,
     <S as Service<ServiceRequest>>::Future: Unpin,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<B>>;
     type Error = Error;
     type Transform = GovernorMiddleware<S, K, StateInformationMiddleware>;
     type InitError = ();
