@@ -1,10 +1,12 @@
-use actix_web::dev::{Service, ServiceRequest, ServiceResponse};
+use actix_web::dev::{forward_ready, Service, ServiceRequest, ServiceResponse};
 use actix_web::http::header::{HeaderName, HeaderValue};
 use actix_web::{body::MessageBody, error, Error};
-use futures::future;
+use futures::{future, TryFutureExt};
 use governor::clock::{Clock, DefaultClock};
 use governor::middleware::{NoOpMiddleware, StateInformationMiddleware};
 
+use actix_http::body::EitherBody;
+use futures::future::{ok, Either, MapOk, Ready};
 use std::future::Future;
 use std::marker::Unpin;
 use std::pin::Pin;
@@ -18,21 +20,21 @@ where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
     B: MessageBody,
 {
-    type Response = S::Response;
+    type Response = ServiceResponse<EitherBody<B>>;
     type Error = S::Error;
-    type Future =
-        future::Either<future::Ready<Result<ServiceResponse<B>, actix_web::Error>>, S::Future>;
+    type Future = Either<
+        MapOk<S::Future, fn(ServiceResponse<B>) -> ServiceResponse<EitherBody<B>>>,
+        Ready<Result<ServiceResponse<EitherBody<B>>, Self::Error>>,
+    >;
 
-    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.service.poll_ready(cx)
-    }
+    forward_ready!(service);
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
         if let Some(configured_methods) = &self.methods {
             if !configured_methods.contains(req.method()) {
                 // The request method is not configured, we're ignoring this one.
                 let fut = self.service.call(req);
-                return future::Either::Right(fut);
+                return Either::Left(fut.map_ok(|resp| resp.map_into_left_body()));
             }
         }
 
@@ -42,7 +44,7 @@ where
             Ok(key) => match self.limiter.check_key(&key) {
                 Ok(_) => {
                     let fut = self.service.call(req);
-                    future::Either::Right(fut)
+                    Either::Left(fut.map_ok(|resp| resp.map_into_left_body()))
                 }
 
                 Err(negative) => {
@@ -63,20 +65,19 @@ where
                             &wait_time
                         );
                     }
-                    let mut response_bulider = actix_web::HttpResponse::TooManyRequests();
-                    response_bulider.insert_header(("x-ratelimit-after", wait_time));
+                    let mut response_builder = actix_web::HttpResponse::TooManyRequests();
+                    response_builder.insert_header(("x-ratelimit-after", wait_time));
                     let response = self
                         .key_extractor
-                        .exceed_rate_limit_response(&negative, response_bulider);
+                        .exceed_rate_limit_response(&negative, response_builder);
 
-                    future::Either::Left(future::err(
-                        error::InternalError::from_response("TooManyRequests", response).into(),
-                    ))
+                    let response = req.into_response(response);
+                    Either::Right(ok(response.map_into_right_body()))
                 }
             },
 
             // Extraction failed, stop right now.
-            Err(e) => future::Either::Left(future::err(e.into())),
+            Err(e) => Either::Right(future::err(e.into())),
         }
     }
 }

@@ -73,14 +73,10 @@ async fn test_server() {
         .peer_addr(addr)
         .uri("/")
         .to_request();
-    let test = app.call(req).await.unwrap_err();
+    let test = app.call(req).await.unwrap();
+    assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
-        test.as_response_error().status_code(),
-        StatusCode::TOO_MANY_REQUESTS
-    );
-    assert_eq!(
-        test.error_response()
-            .headers()
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
             .unwrap(),
         "0"
@@ -103,19 +99,15 @@ async fn test_server() {
         .peer_addr(addr)
         .uri("/")
         .to_request();
-    let test = app.call(req).await.unwrap_err();
-    let err_response: HttpResponse = test.error_response();
-    assert_eq!(err_response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let test = app.call(req).await.unwrap();
+    assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
-        err_response
-            .headers()
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
             .unwrap(),
         "0"
     );
-    let body = actix_web::body::to_bytes(err_response.into_body())
-        .await
-        .unwrap();
+    let body = actix_web::body::to_bytes(test.into_body()).await.unwrap();
     assert_eq!(body, "Too many requests, retry in 0s");
 }
 
@@ -163,14 +155,10 @@ async fn test_method_filter() {
         .peer_addr(addr)
         .uri("/")
         .to_request();
-    let test = app.call(req).await.unwrap_err();
+    let test = app.call(req).await.unwrap();
+    assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
-        test.as_response_error().status_code(),
-        StatusCode::TOO_MANY_REQUESTS
-    );
-    assert_eq!(
-        test.error_response()
-            .headers()
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
             .unwrap(),
         "0"
@@ -563,7 +551,7 @@ async fn test_json_error_response() {
     assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
     // Third request
     let err_req = test::TestRequest::get().uri("/").to_request();
-    let err_res: HttpResponse = app.call(err_req).await.unwrap_err().error_response();
+    let err_res = app.call(err_req).await.unwrap();
     assert_eq!(
         err_res.headers().get(header::CONTENT_TYPE).unwrap(),
         HeaderValue::from_static("application/json")
@@ -667,7 +655,7 @@ async fn test_html_error_response() {
     assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
     // Third request
     let err_req = test::TestRequest::get().uri("/").to_request();
-    let err_res = app.call(err_req).await.unwrap_err().error_response();
+    let err_res = app.call(err_req).await.unwrap();
     assert_eq!(
         err_res.headers().get(header::CONTENT_TYPE).unwrap(),
         HeaderValue::from_static("text/html; charset=utf-8")
