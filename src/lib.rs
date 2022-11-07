@@ -156,6 +156,7 @@ use governor::{
     Quota, RateLimiter,
 };
 
+use actix_http::body::EitherBody;
 use std::{cell::RefCell, marker::PhantomData, num::NonZeroU32, rc::Rc, sync::Arc, time::Duration};
 
 use actix_web::dev::{Service, ServiceRequest, ServiceResponse, Transform};
@@ -469,7 +470,7 @@ where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error>,
     B: MessageBody,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<B>>;
     type Error = Error;
     type Transform = GovernorMiddleware<S, K, NoOpMiddleware>;
     type InitError = ();
@@ -492,7 +493,7 @@ where
     B: MessageBody,
     <S as Service<ServiceRequest>>::Future: Unpin,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<B>>;
     type Error = Error;
     type Transform = GovernorMiddleware<S, K, StateInformationMiddleware>;
     type InitError = ();
