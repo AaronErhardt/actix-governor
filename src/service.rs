@@ -14,6 +14,11 @@ use std::task::{Context, Poll};
 
 use crate::{GovernorMiddleware, KeyExtractor};
 
+type ServiceFuture<S, B> = MapOk<
+    <S as Service<ServiceRequest>>::Future,
+    fn(ServiceResponse<B>) -> ServiceResponse<EitherBody<B>>,
+>;
+
 impl<S, B, K> Service<ServiceRequest> for GovernorMiddleware<S, K, NoOpMiddleware>
 where
     K: KeyExtractor,
@@ -22,10 +27,8 @@ where
 {
     type Response = ServiceResponse<EitherBody<B>>;
     type Error = S::Error;
-    type Future = Either<
-        MapOk<S::Future, fn(ServiceResponse<B>) -> ServiceResponse<EitherBody<B>>>,
-        Ready<Result<ServiceResponse<EitherBody<B>>, Self::Error>>,
-    >;
+    type Future =
+        Either<ServiceFuture<S, B>, Ready<Result<ServiceResponse<EitherBody<B>>, Self::Error>>>;
 
     forward_ready!(service);
 
@@ -163,14 +166,7 @@ where
     type Response = ServiceResponse<EitherBody<B>>;
     type Error = S::Error;
     type Future = Either<
-        Either<
-            RateLimitHeaderFut<
-                MapOk<S::Future, fn(ServiceResponse<B>) -> ServiceResponse<EitherBody<B>>>,
-            >,
-            WhitelistedHeaderFut<
-                MapOk<S::Future, fn(ServiceResponse<B>) -> ServiceResponse<EitherBody<B>>>,
-            >,
-        >,
+        Either<RateLimitHeaderFut<ServiceFuture<S, B>>, WhitelistedHeaderFut<ServiceFuture<S, B>>>,
         Ready<Result<ServiceResponse<EitherBody<B>>, Error>>,
     >;
 
