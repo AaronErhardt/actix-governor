@@ -164,12 +164,14 @@ use actix_web::http::Method;
 use actix_web::{body::MessageBody, Error};
 use futures::future;
 
+mod extractor;
 mod key_extractor;
 mod service;
 
 type SharedRateLimiter<Key, M> =
     Arc<RateLimiter<Key, DefaultKeyedStateStore<Key>, DefaultClock, M>>;
 
+pub use extractor::GovernorExtractor;
 pub use key_extractor::{
     GlobalKeyExtractor, KeyExtractor, PeerIpKeyExtractor, SimpleKeyExtractionError,
 };
@@ -213,6 +215,7 @@ pub struct GovernorConfigBuilder<K: KeyExtractor, M: RateLimitingMiddleware<Quan
     methods: Option<Vec<Method>>,
     key_extractor: K,
     middleware: PhantomData<M>,
+    permissive: bool,
 }
 
 impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone
@@ -225,6 +228,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone
             methods: self.methods.clone(),
             key_extractor: self.key_extractor.clone(),
             middleware: self.middleware,
+            permissive: self.permissive,
         }
     }
 }
@@ -237,6 +241,7 @@ impl<K: KeyExtractor + PartialEq, M: RateLimitingMiddleware<QuantaInstant>> Part
             && self.burst_size == other.burst_size
             && self.methods == other.methods
             && self.key_extractor == other.key_extractor
+            && self.permissive == other.permissive
     }
 }
 
@@ -257,6 +262,7 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyEx
             methods: None,
             key_extractor: PeerIpKeyExtractor,
             middleware: PhantomData,
+            permissive: false,
         }
     }
     /// Set the interval after which one element of the quota is replenished.
@@ -294,6 +300,14 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyEx
     /// **The burst_size must not be zero.**
     pub fn const_burst_size(mut self, burst_size: u32) -> Self {
         self.burst_size = burst_size;
+        self
+    }
+    /// Set the mode of the governor middleware.
+    ///
+    /// If permissive is set to true, the middleware will not block requests.
+    /// See also [`GovernorExtractor`](crate::GovernorExtractor).
+    pub fn const_permissive(mut self, permissive: bool) -> Self {
+        self.permissive = permissive;
         self
     }
 }
@@ -336,6 +350,14 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
         self.burst_size = burst_size;
         self
     }
+    /// Set the mode of the governor middleware.
+    ///
+    /// If permissive is set to true, the middleware will not block requests.
+    /// See also [`GovernorExtractor`](crate::GovernorExtractor).
+    pub fn permissive(&mut self, permissive: bool) -> &mut Self {
+        self.permissive = permissive;
+        self
+    }
 
     /// Set the HTTP methods this configuration should apply to.
     /// By default this is all methods.
@@ -356,6 +378,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
             methods: self.methods.to_owned(),
             key_extractor,
             middleware: PhantomData,
+            permissive: self.permissive,
         }
     }
 
@@ -376,6 +399,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
             methods: self.methods.to_owned(),
             key_extractor: self.key_extractor.clone(),
             middleware: PhantomData,
+            permissive: self.permissive,
         }
     }
 
@@ -394,6 +418,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
                     .with_middleware::<M>(),
                 ),
                 methods: self.methods.clone(),
+                permissive: self.permissive,
             })
         } else {
             None
@@ -407,6 +432,7 @@ pub struct GovernorConfig<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInsta
     key_extractor: K,
     limiter: SharedRateLimiter<K::Key, M>,
     methods: Option<Vec<Method>>,
+    permissive: bool,
 }
 
 impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone for GovernorConfig<K, M> {
@@ -415,6 +441,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone for Govern
             key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
             methods: self.methods.clone(),
+            permissive: self.permissive,
         }
     }
 }
@@ -440,6 +467,7 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfig<PeerIpKeyExtractor
             methods: None,
             key_extractor: PeerIpKeyExtractor,
             middleware: PhantomData,
+            permissive: false,
         }
         .finish()
         .unwrap()
@@ -451,6 +479,7 @@ pub struct Governor<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
     key_extractor: K,
     limiter: SharedRateLimiter<K::Key, M>,
     methods: Option<Vec<Method>>,
+    permissive: bool,
 }
 
 impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Governor<K, M> {
@@ -460,6 +489,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Governor<K, M> {
             key_extractor: config.key_extractor.clone(),
             limiter: config.limiter.clone(),
             methods: config.methods.clone(),
+            permissive: config.permissive,
         }
     }
 }
@@ -482,6 +512,7 @@ where
             key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
             methods: self.methods.clone(),
+            permissive: self.permissive,
         })
     }
 }
@@ -505,7 +536,70 @@ where
             key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
             methods: self.methods.clone(),
+            permissive: self.permissive,
         })
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum GovernorResult<E> {
+    Ok {
+        limit: Option<u32>,
+        remaining: Option<u32>,
+    },
+    Whitelisted,
+    Wait {
+        wait: u64,
+        limit: Option<u32>,
+    },
+    Err(E),
+}
+
+impl<E> GovernorResult<E> {
+    const fn whitelist() -> Self {
+        Self::Whitelisted
+    }
+    const fn ok() -> Self {
+        Self::Ok {
+            limit: None,
+            remaining: None,
+        }
+    }
+    const fn ok_with_info(limit: u32, remaining: u32) -> Self {
+        Self::Ok {
+            limit: Some(limit),
+            remaining: Some(remaining),
+        }
+    }
+    const fn wait(wait: u64) -> Self {
+        Self::Wait { wait, limit: None }
+    }
+    const fn wait_with_info(wait: u64, limit: u32) -> Self {
+        Self::Wait {
+            wait,
+            limit: Some(limit),
+        }
+    }
+    const fn err(e: E) -> Self {
+        Self::Err(e)
+    }
+}
+
+impl<E> GovernorResult<E> {
+    /// Check if this request is rate limited.
+    ///
+    /// Returns `Ok(Some(wait))` if the request is rate limited and should be retried after `wait` milliseconds.
+    ///
+    /// Returns `Ok(None)` if the request is not rate limited.
+    ///
+    /// # Errors
+    /// Returns error if key extraction failed.
+    pub const fn check(&self) -> Result<Option<u64>, &E> {
+        match self {
+            Self::Wait { wait, .. } => Ok(Some(*wait)),
+            Self::Err(e) => Err(e),
+            _ => Ok(None),
+        }
     }
 }
 
@@ -514,4 +608,5 @@ pub struct GovernorMiddleware<S, K: KeyExtractor, M: RateLimitingMiddleware<Quan
     key_extractor: K,
     limiter: SharedRateLimiter<K::Key, M>,
     methods: Option<Vec<Method>>,
+    permissive: bool,
 }

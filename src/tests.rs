@@ -1,4 +1,5 @@
-use crate::{KeyExtractor, SimpleKeyExtractionError};
+use crate::extractor::GovernorExtractor;
+use crate::{GovernorResult, KeyExtractor, SimpleKeyExtractionError};
 use actix_http::header::{HeaderName, HeaderValue};
 use actix_web::{
     dev::Service,
@@ -693,4 +694,86 @@ async fn test_network_authentication_required_response_error() {
         err_res.as_response_error().status_code(),
         StatusCode::NETWORK_AUTHENTICATION_REQUIRED
     );
+}
+
+async fn permissive_route(GovernorExtractor(result): GovernorExtractor) -> impl Responder {
+    match result {
+        GovernorResult::Ok { limit, remaining } => format!("Ok: {:?} {:?}", limit, remaining),
+        GovernorResult::Wait { wait, limit } => format!("Wait: {} {:?}", wait, limit),
+        GovernorResult::Whitelisted => "Whitelisted".into(),
+        GovernorResult::Err(e) => format!("Err: {}", e),
+    }
+}
+
+#[actix_rt::test]
+async fn test_server_permissive() {
+    use crate::{Governor, GovernorConfigBuilder};
+    use actix_web::test;
+    use actix_web::web::Bytes;
+
+    let config = GovernorConfigBuilder::default()
+        .per_millisecond(90)
+        .burst_size(2)
+        .permissive(true)
+        .finish()
+        .unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(Governor::new(&config))
+            .route("/", web::get().to(permissive_route)),
+    )
+    .await;
+
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80u16);
+
+    // First request
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = test::call_service(&app, req).await;
+    let body = actix_web::body::to_bytes(test.into_body()).await.unwrap();
+    assert_eq!(body, Bytes::from_static(b"Ok: None None"));
+
+    // Second request
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = test::call_service(&app, req).await;
+    let body = actix_web::body::to_bytes(test.into_body()).await.unwrap();
+    assert_eq!(body, Bytes::from_static(b"Ok: None None"));
+
+    // Third request -> Over limit, returns Error
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = app.call(req).await.unwrap();
+    let body = actix_web::body::to_bytes(test.into_body()).await.unwrap();
+    assert_eq!(body, Bytes::from_static(b"Wait: 0 None"));
+
+    // Replenish one element by waiting for >90ms
+    let sleep_time = std::time::Duration::from_millis(100);
+    std::thread::sleep(sleep_time);
+
+    // First request after reset
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = test::call_service(&app, req).await;
+    let text = test::read_body(test).await;
+    assert_eq!(text, Bytes::from_static(b"Ok: None None"));
+
+    // Second request after reset -> Again over limit, returns Error
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = app.call(req).await.unwrap();
+    let body = actix_web::body::to_bytes(test.into_body()).await.unwrap();
+    assert_eq!(body, Bytes::from_static(b"Wait: 0 None"));
 }
