@@ -6,13 +6,14 @@ use governor::clock::{Clock, DefaultClock};
 use governor::middleware::{NoOpMiddleware, StateInformationMiddleware};
 
 use actix_http::body::EitherBody;
+use actix_http::HttpMessage;
 use futures::future::{ok, Either, MapOk, Ready};
 use std::future::Future;
 use std::marker::Unpin;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use crate::{GovernorMiddleware, KeyExtractor};
+use crate::{GovernorMiddleware, GovernorResult, KeyExtractor};
 
 type ServiceFuture<S, B> = MapOk<
     <S as Service<ServiceRequest>>::Future,
@@ -35,6 +36,9 @@ where
     fn call(&self, req: ServiceRequest) -> Self::Future {
         if let Some(configured_methods) = &self.methods {
             if !configured_methods.contains(req.method()) {
+                req.extensions_mut()
+                    .insert(GovernorResult::<K::KeyExtractionError>::whitelist());
+
                 // The request method is not configured, we're ignoring this one.
                 let fut = self.service.call(req);
                 return Either::Left(fut.map_ok(|resp| resp.map_into_left_body()));
@@ -46,6 +50,9 @@ where
             // Extraction worked, let's check if rate limiting is needed.
             Ok(key) => match self.limiter.check_key(&key) {
                 Ok(_) => {
+                    req.extensions_mut()
+                        .insert(GovernorResult::<K::KeyExtractionError>::ok());
+
                     let fut = self.service.call(req);
                     Either::Left(fut.map_ok(|resp| resp.map_into_left_body()))
                 }
@@ -68,6 +75,15 @@ where
                             &wait_time
                         );
                     }
+
+                    req.extensions_mut()
+                        .insert(GovernorResult::<K::KeyExtractionError>::wait(wait_time));
+
+                    if self.permissive {
+                        let fut = self.service.call(req);
+                        return Either::Left(fut.map_ok(|resp| resp.map_into_left_body()));
+                    }
+
                     let mut response_builder = actix_web::HttpResponse::TooManyRequests();
                     response_builder.insert_header(("x-ratelimit-after", wait_time));
                     let response = self
@@ -80,7 +96,17 @@ where
             },
 
             // Extraction failed, stop right now.
-            Err(e) => Either::Right(future::err(e.into())),
+            Err(e) => {
+                if self.permissive {
+                    req.extensions_mut()
+                        .insert(GovernorResult::<K::KeyExtractionError>::err(e));
+
+                    let fut = self.service.call(req);
+                    Either::Left(fut.map_ok(|resp| resp.map_into_left_body()))
+                } else {
+                    Either::Right(future::err(e.into()))
+                }
+            }
         }
     }
 }
@@ -166,8 +192,14 @@ where
     type Response = ServiceResponse<EitherBody<B>>;
     type Error = S::Error;
     type Future = Either<
-        Either<RateLimitHeaderFut<ServiceFuture<S, B>>, WhitelistedHeaderFut<ServiceFuture<S, B>>>,
-        Ready<Result<ServiceResponse<EitherBody<B>>, Error>>,
+        Either<
+            Either<
+                RateLimitHeaderFut<ServiceFuture<S, B>>,
+                WhitelistedHeaderFut<ServiceFuture<S, B>>,
+            >,
+            Ready<Result<ServiceResponse<EitherBody<B>>, Error>>,
+        >,
+        ServiceFuture<S, B>,
     >;
 
     forward_ready!(service);
@@ -176,10 +208,13 @@ where
         if let Some(configured_methods) = &self.methods {
             if !configured_methods.contains(req.method()) {
                 // The request method is not configured, we're ignoring this one.
+                req.extensions_mut()
+                    .insert(GovernorResult::<K::KeyExtractionError>::whitelist());
+
                 let fut = self.service.call(req);
-                return Either::Left(Either::Right(WhitelistedHeaderFut {
+                return Either::Left(Either::Left(Either::Right(WhitelistedHeaderFut {
                     future: fut.map_ok(|resp| resp.map_into_left_body()),
-                }));
+                })));
             }
         }
 
@@ -188,12 +223,23 @@ where
             // Extraction worked, let's check if rate limiting is needed.
             Ok(key) => match self.limiter.check_key(&key) {
                 Ok(snapshot) => {
+                    req.extensions_mut().insert(
+                        GovernorResult::<K::KeyExtractionError>::ok_with_info(
+                            snapshot.quota().burst_size().get(),
+                            snapshot.remaining_burst_capacity(),
+                        ),
+                    );
+
                     let fut = self.service.call(req);
-                    Either::Left(Either::Left(RateLimitHeaderFut {
-                        future: fut.map_ok(|resp| resp.map_into_left_body()),
-                        burst_size: snapshot.quota().burst_size().get(),
-                        remaining_burst_capacity: snapshot.remaining_burst_capacity(),
-                    }))
+                    if self.permissive {
+                        Either::Right(fut.map_ok(|resp| resp.map_into_left_body()))
+                    } else {
+                        Either::Left(Either::Left(Either::Left(RateLimitHeaderFut {
+                            future: fut.map_ok(|resp| resp.map_into_left_body()),
+                            burst_size: snapshot.quota().burst_size().get(),
+                            remaining_burst_capacity: snapshot.remaining_burst_capacity(),
+                        })))
+                    }
                 }
 
                 Err(negative) => {
@@ -215,6 +261,18 @@ where
                         );
                     }
 
+                    req.extensions_mut().insert(
+                        GovernorResult::<K::KeyExtractionError>::wait_with_info(
+                            wait_time,
+                            negative.quota().burst_size().get(),
+                        ),
+                    );
+
+                    if self.permissive {
+                        let fut = self.service.call(req);
+                        return Either::Right(fut.map_ok(|resp| resp.map_into_left_body()));
+                    }
+
                     let mut response_builder = actix_web::HttpResponse::TooManyRequests();
                     response_builder
                         .insert_header(("x-ratelimit-after", wait_time))
@@ -225,12 +283,22 @@ where
                         .exceed_rate_limit_response(&negative, response_builder);
 
                     let response = req.into_response(response);
-                    Either::Right(ok(response.map_into_right_body()))
+                    Either::Left(Either::Right(ok(response.map_into_right_body())))
                 }
             },
 
             // Extraction failed, stop right now.
-            Err(e) => Either::Right(future::err(e.into())),
+            Err(e) => {
+                if self.permissive {
+                    req.extensions_mut()
+                        .insert(GovernorResult::<K::KeyExtractionError>::err(e));
+
+                    let fut = self.service.call(req);
+                    Either::Right(fut.map_ok(|resp| resp.map_into_left_body()))
+                } else {
+                    Either::Left(Either::Right(future::err(e.into())))
+                }
+            }
         }
     }
 }
