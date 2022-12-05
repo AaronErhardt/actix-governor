@@ -223,10 +223,11 @@ where
             // Extraction worked, let's check if rate limiting is needed.
             Ok(key) => match self.limiter.check_key(&key) {
                 Ok(snapshot) => {
+                    let burst_size = snapshot.quota().burst_size().get();
+                    let remaining = snapshot.remaining_burst_capacity();
                     req.extensions_mut().insert(
                         GovernorResult::<K::KeyExtractionError>::ok_with_info(
-                            snapshot.quota().burst_size().get(),
-                            snapshot.remaining_burst_capacity(),
+                            burst_size, remaining,
                         ),
                     );
 
@@ -236,8 +237,8 @@ where
                     } else {
                         Either::Left(Either::Left(Either::Left(RateLimitHeaderFut {
                             future: fut.map_ok(|resp| resp.map_into_left_body()),
-                            burst_size: snapshot.quota().burst_size().get(),
-                            remaining_burst_capacity: snapshot.remaining_burst_capacity(),
+                            burst_size,
+                            remaining_burst_capacity: remaining,
                         })))
                     }
                 }
@@ -246,6 +247,7 @@ where
                     let wait_time = negative
                         .wait_time_from(DefaultClock::default().now())
                         .as_secs();
+                    let burst_size = negative.quota().burst_size().get();
 
                     #[cfg(feature = "log")]
                     {
@@ -263,8 +265,7 @@ where
 
                     req.extensions_mut().insert(
                         GovernorResult::<K::KeyExtractionError>::wait_with_info(
-                            wait_time,
-                            negative.quota().burst_size().get(),
+                            wait_time, burst_size,
                         ),
                     );
 
@@ -276,7 +277,7 @@ where
                     let mut response_builder = actix_web::HttpResponse::TooManyRequests();
                     response_builder
                         .insert_header(("x-ratelimit-after", wait_time))
-                        .insert_header(("x-ratelimit-limit", negative.quota().burst_size().get()))
+                        .insert_header(("x-ratelimit-limit", burst_size))
                         .insert_header(("x-ratelimit-remaining", 0));
                     let response = self
                         .key_extractor

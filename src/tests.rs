@@ -698,8 +698,11 @@ async fn test_network_authentication_required_response_error() {
 
 async fn permissive_route(GovernorExtractor(result): GovernorExtractor) -> impl Responder {
     match result {
-        GovernorResult::Ok { limit, remaining } => format!("Ok: {:?} {:?}", limit, remaining),
-        GovernorResult::Wait { wait, limit } => format!("Wait: {} {:?}", wait, limit),
+        GovernorResult::Ok {
+            burst_size,
+            remaining,
+        } => format!("Ok: {:?} {:?}", burst_size, remaining),
+        GovernorResult::Wait { wait, burst_size } => format!("Wait: {} {:?}", wait, burst_size),
         GovernorResult::Whitelisted => "Whitelisted".into(),
         GovernorResult::Err(e) => format!("Err: {}", e),
     }

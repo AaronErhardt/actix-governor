@@ -112,8 +112,11 @@ pub struct GlobalKeyExtractor;
 #[derive(Debug)]
 /// A simple struct to create  error, by default the status is  500 server error and content-type is plintext
 pub struct SimpleKeyExtractionError<T: Display + Debug> {
+    /// The response body of the error.
     pub body: T,
+    /// The status code of the error.
     pub status_code: StatusCode,
+    /// The content type of the error.
     pub content_type: ContentType,
 }
 

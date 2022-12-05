@@ -146,6 +146,14 @@
 //! Instead pass the same configuration reference into [`Governor::new()`],
 //! like it is described in the example.
 
+#![warn(
+    rust_2018_idioms,
+    unreachable_pub,
+    missing_docs,
+    clippy::must_use_candidate,
+    clippy::cargo
+)]
+
 #[cfg(test)]
 mod tests;
 
@@ -170,6 +178,9 @@ mod service;
 
 type SharedRateLimiter<Key, M> =
     Arc<RateLimiter<Key, DefaultKeyedStateStore<Key>, DefaultClock, M>>;
+
+/// Re-export governor
+pub use governor;
 
 pub use extractor::GovernorExtractor;
 pub use key_extractor::{
@@ -208,6 +219,7 @@ const DEFAULT_BURST_SIZE: u32 = 8;
 ///     .finish()
 ///     .unwrap();
 /// ```
+#[must_use]
 #[derive(Debug, Eq)]
 pub struct GovernorConfigBuilder<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
     period: Duration,
@@ -255,7 +267,8 @@ impl Default for GovernorConfigBuilder<PeerIpKeyExtractor, NoOpMiddleware> {
 }
 
 impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyExtractor, M> {
-    pub fn const_default() -> Self {
+    /// Returns the default configuration.
+    pub const fn const_default() -> Self {
         GovernorConfigBuilder {
             period: DEFAULT_PERIOD,
             burst_size: DEFAULT_BURST_SIZE,
@@ -268,28 +281,28 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyEx
     /// Set the interval after which one element of the quota is replenished.
     ///
     /// **The interval must not be zero.**
-    pub fn const_period(mut self, duration: Duration) -> Self {
+    pub const fn const_period(mut self, duration: Duration) -> Self {
         self.period = duration;
         self
     }
     /// Set the interval after which one element of the quota is replenished in seconds.
     ///
     /// **The interval must not be zero.**
-    pub fn const_per_second(mut self, seconds: u64) -> Self {
+    pub const fn const_per_second(mut self, seconds: u64) -> Self {
         self.period = Duration::from_secs(seconds);
         self
     }
     /// Set the interval after which one element of the quota is replenished in milliseconds.
     ///
     /// **The interval must not be zero.**
-    pub fn const_per_millisecond(mut self, milliseconds: u64) -> Self {
+    pub const fn const_per_millisecond(mut self, milliseconds: u64) -> Self {
         self.period = Duration::from_millis(milliseconds);
         self
     }
     /// Set the interval after which one element of the quota is replenished in nanoseconds.
     ///
     /// **The interval must not be zero.**
-    pub fn const_per_nanosecond(mut self, nanoseconds: u64) -> Self {
+    pub const fn const_per_nanosecond(mut self, nanoseconds: u64) -> Self {
         self.period = Duration::from_nanos(nanoseconds);
         self
     }
@@ -298,7 +311,7 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyEx
     /// clients have to wait until the elements of the quota are replenished.
     ///
     /// **The burst_size must not be zero.**
-    pub fn const_burst_size(mut self, burst_size: u32) -> Self {
+    pub const fn const_burst_size(mut self, burst_size: u32) -> Self {
         self.burst_size = burst_size;
         self
     }
@@ -306,7 +319,7 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyEx
     ///
     /// If permissive is set to true, the middleware will not block requests.
     /// See also [`GovernorExtractor`](crate::GovernorExtractor).
-    pub fn const_permissive(mut self, permissive: bool) -> Self {
+    pub const fn const_permissive(mut self, permissive: bool) -> Self {
         self.permissive = permissive;
         self
     }
@@ -427,6 +440,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
 }
 
 #[derive(Debug)]
+#[must_use]
 /// Configuration for the Governor middleware.
 pub struct GovernorConfig<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
     key_extractor: K,
@@ -542,16 +556,25 @@ where
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+/// The result of a [`GovernorExtractor`].
 pub enum GovernorResult<E> {
+    /// The request does not exceed the rate limit.
     Ok {
-        limit: Option<u32>,
+        /// The maximum burst size.
+        burst_size: Option<u32>,
+        /// The remaining burst capacity.
         remaining: Option<u32>,
     },
+    /// The request method was whitelisted.
     Whitelisted,
+    /// The request exceeds the rate limit.
     Wait {
+        /// The maximum burst size.
+        burst_size: Option<u32>,
+        /// The time to wait for new requests in seconds.
         wait: u64,
-        limit: Option<u32>,
     },
+    /// Internal error.
     Err(E),
 }
 
@@ -559,27 +582,35 @@ impl<E> GovernorResult<E> {
     const fn whitelist() -> Self {
         Self::Whitelisted
     }
+
     const fn ok() -> Self {
         Self::Ok {
-            limit: None,
+            burst_size: None,
             remaining: None,
         }
     }
-    const fn ok_with_info(limit: u32, remaining: u32) -> Self {
+
+    const fn ok_with_info(burst_size: u32, remaining: u32) -> Self {
         Self::Ok {
-            limit: Some(limit),
+            burst_size: Some(burst_size),
             remaining: Some(remaining),
         }
     }
+
     const fn wait(wait: u64) -> Self {
-        Self::Wait { wait, limit: None }
-    }
-    const fn wait_with_info(wait: u64, limit: u32) -> Self {
         Self::Wait {
             wait,
-            limit: Some(limit),
+            burst_size: None,
         }
     }
+
+    const fn wait_with_info(wait: u64, burst_size: u32) -> Self {
+        Self::Wait {
+            wait,
+            burst_size: Some(burst_size),
+        }
+    }
+
     const fn err(e: E) -> Self {
         Self::Err(e)
     }
@@ -603,6 +634,7 @@ impl<E> GovernorResult<E> {
     }
 }
 
+/// A middleware that implements rate limiting based on the governor crate.
 pub struct GovernorMiddleware<S, K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
     service: std::rc::Rc<std::cell::RefCell<S>>,
     key_extractor: K,
