@@ -225,6 +225,7 @@ pub struct GovernorConfigBuilder<K: KeyExtractor, M: RateLimitingMiddleware<Quan
     period: Duration,
     burst_size: u32,
     methods: Option<Vec<Method>>,
+    whitelisted_paths: Option<Vec<String>>,
     key_extractor: K,
     middleware: PhantomData<M>,
     permissive: bool,
@@ -238,6 +239,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone
             period: self.period,
             burst_size: self.burst_size,
             methods: self.methods.clone(),
+            whitelisted_paths: self.whitelisted_paths.clone(),
             key_extractor: self.key_extractor.clone(),
             middleware: self.middleware,
             permissive: self.permissive,
@@ -252,6 +254,7 @@ impl<K: KeyExtractor + PartialEq, M: RateLimitingMiddleware<QuantaInstant>> Part
         self.period == other.period
             && self.burst_size == other.burst_size
             && self.methods == other.methods
+            && self.whitelisted_paths == other.whitelisted_paths
             && self.key_extractor == other.key_extractor
             && self.permissive == other.permissive
     }
@@ -273,6 +276,7 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyEx
             period: DEFAULT_PERIOD,
             burst_size: DEFAULT_BURST_SIZE,
             methods: None,
+            whitelisted_paths: None,
             key_extractor: PeerIpKeyExtractor,
             middleware: PhantomData,
             permissive: false,
@@ -379,6 +383,12 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
         self
     }
 
+    /// Set the paths this configuration should should ignore.
+    pub fn whitelisted_paths(&mut self, whitelisted_paths: Vec<String>) -> &mut Self {
+        self.whitelisted_paths = Some(whitelisted_paths);
+        self
+    }
+
     /// Set the key extractor this configuration should use.
     /// By default this is using the [PeerIpKeyExtractor].
     pub fn key_extractor<K2: KeyExtractor>(
@@ -389,6 +399,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
             period: self.period,
             burst_size: self.burst_size,
             methods: self.methods.to_owned(),
+            whitelisted_paths: self.whitelisted_paths.to_owned(),
             key_extractor,
             middleware: PhantomData,
             permissive: self.permissive,
@@ -410,6 +421,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
             period: self.period,
             burst_size: self.burst_size,
             methods: self.methods.to_owned(),
+            whitelisted_paths: self.whitelisted_paths.to_owned(),
             key_extractor: self.key_extractor.clone(),
             middleware: PhantomData,
             permissive: self.permissive,
@@ -431,6 +443,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
                     .with_middleware::<M>(),
                 ),
                 methods: self.methods.clone(),
+                whitelisted_paths: self.whitelisted_paths.clone(),
                 permissive: self.permissive,
             })
         } else {
@@ -445,6 +458,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
 pub struct GovernorConfig<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
     key_extractor: K,
     limiter: SharedRateLimiter<K::Key, M>,
+    whitelisted_paths: Option<Vec<String>>,
     methods: Option<Vec<Method>>,
     permissive: bool,
 }
@@ -454,6 +468,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Clone for Govern
         GovernorConfig {
             key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
+            whitelisted_paths: self.whitelisted_paths.clone(),
             methods: self.methods.clone(),
             permissive: self.permissive,
         }
@@ -479,6 +494,7 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfig<PeerIpKeyExtractor
             period: Duration::from_secs(4),
             burst_size: 2,
             methods: None,
+            whitelisted_paths: None,
             key_extractor: PeerIpKeyExtractor,
             middleware: PhantomData,
             permissive: false,
@@ -493,6 +509,7 @@ pub struct Governor<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> {
     key_extractor: K,
     limiter: SharedRateLimiter<K::Key, M>,
     methods: Option<Vec<Method>>,
+    whitelisted_paths: Option<Vec<String>>,
     permissive: bool,
 }
 
@@ -503,6 +520,7 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> Governor<K, M> {
             key_extractor: config.key_extractor.clone(),
             limiter: config.limiter.clone(),
             methods: config.methods.clone(),
+            whitelisted_paths: config.whitelisted_paths.clone(),
             permissive: config.permissive,
         }
     }
@@ -526,6 +544,7 @@ where
             key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
             methods: self.methods.clone(),
+            whitelisted_paths: self.whitelisted_paths.clone(),
             permissive: self.permissive,
         })
     }
@@ -550,6 +569,7 @@ where
             key_extractor: self.key_extractor.clone(),
             limiter: self.limiter.clone(),
             methods: self.methods.clone(),
+            whitelisted_paths: self.whitelisted_paths.clone(),
             permissive: self.permissive,
         })
     }
@@ -640,5 +660,6 @@ pub struct GovernorMiddleware<S, K: KeyExtractor, M: RateLimitingMiddleware<Quan
     key_extractor: K,
     limiter: SharedRateLimiter<K::Key, M>,
     methods: Option<Vec<Method>>,
+    whitelisted_paths: Option<Vec<String>>,
     permissive: bool,
 }

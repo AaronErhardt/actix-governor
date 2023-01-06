@@ -34,6 +34,18 @@ where
     forward_ready!(service);
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
+
+        if let Some(whitelisted_path) = &self.whitelisted_paths {
+            if whitelisted_path.contains(&req.path().to_owned()) {
+                req.extensions_mut()
+                    .insert(GovernorResult::<K::KeyExtractionError>::whitelist());
+
+                // The request path is whitelisted, we're ignoring this one.
+                let fut = self.service.call(req);
+                return Either::Left(fut.map_ok(|resp| resp.map_into_left_body()));
+            }
+        }
+
         if let Some(configured_methods) = &self.methods {
             if !configured_methods.contains(req.method()) {
                 req.extensions_mut()

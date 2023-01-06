@@ -32,6 +32,10 @@ async fn hello() -> impl Responder {
     HttpResponse::Ok().body("Hello world!")
 }
 
+async fn hi() -> impl Responder {
+    HttpResponse::Ok().body("Hi world!")
+}
+
 #[actix_rt::test]
 async fn test_server() {
     use crate::{Governor, GovernorConfigBuilder};
@@ -170,6 +174,69 @@ async fn test_method_filter() {
     let req = test::TestRequest::post()
         .peer_addr(addr)
         .uri("/")
+        .to_request();
+    let test = test::call_service(&app, req).await;
+    assert_eq!(test.status(), StatusCode::OK);
+}
+
+#[actix_rt::test]
+async fn test_whitelisted_paths() {
+    use crate::{Governor, GovernorConfigBuilder, Method};
+    use actix_web::test;
+
+    let config = GovernorConfigBuilder::default()
+        .per_millisecond(90)
+        .burst_size(2)
+        .whitelisted_paths(vec!["/hi".to_owned()])
+        .finish()
+        .unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(Governor::new(&config))
+            .route("/", web::get().to(hello))
+            .route("/hi", web::get().to(hi)),
+    )
+        .await;
+
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80u16);
+
+    // First request
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = test::call_service(&app, req).await;
+    assert_eq!(test.status(), StatusCode::OK);
+
+    // Second request
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = test::call_service(&app, req).await;
+    assert_eq!(test.status(), StatusCode::OK);
+
+    // Third request -> Over limit, returns Error
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = app.call(req).await.unwrap();
+    assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        test.headers()
+            .get(HeaderName::from_static("x-ratelimit-after"))
+            .unwrap(),
+        "0"
+    );
+
+    // Fourth request, now a request on a whitelisted path
+    // This one is ignored by the ratelimit
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/hi")
         .to_request();
     let test = test::call_service(&app, req).await;
     assert_eq!(test.status(), StatusCode::OK);
