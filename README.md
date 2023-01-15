@@ -51,5 +51,5 @@ async fn main() -> std::io::Result<()> {
 
 ```toml
 [dependencies]
-actix-governor = "0.3"
+actix-governor = "0.4"
 ```
