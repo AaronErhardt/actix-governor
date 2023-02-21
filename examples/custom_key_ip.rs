@@ -31,9 +31,9 @@ impl KeyExtractor for RealIpKeyExtractor {
             // The request is coming from the reverse proxy, we can trust the `Forwarded` or `X-Forwarded-For` headers
             Some(peer) if peer == reverse_proxy_ip => connection_info
                 .realip_remote_addr()
-                .ok_or(SimpleKeyExtractionError::new(
-                    "Could not extract real IP address from request",
-                ))
+                .ok_or_else(|| {
+                    SimpleKeyExtractionError::new("Could not extract real IP address from request")
+                })
                 .and_then(|str| {
                     SocketAddr::from_str(str)
                         .map(|socket| socket.ip())
@@ -47,9 +47,9 @@ impl KeyExtractor for RealIpKeyExtractor {
             // The request is not coming from the reverse proxy, we use peer IP
             _ => connection_info
                 .peer_addr()
-                .ok_or(SimpleKeyExtractionError::new(
-                    "Could not extract peer IP address from request",
-                ))
+                .ok_or_else(|| {
+                    SimpleKeyExtractionError::new("Could not extract peer IP address from request")
+                })
                 .and_then(|str| {
                     SocketAddr::from_str(str).map_err(|_| {
                         SimpleKeyExtractionError::new(
