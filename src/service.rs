@@ -48,52 +48,63 @@ where
         // Use the provided key extractor to extract the rate limiting key from the request.
         match self.key_extractor.extract(&req) {
             // Extraction worked, let's check if rate limiting is needed.
-            Ok(key) => match self.limiter.check_key(&key) {
-                Ok(_) => {
+            Ok(key) => {
+                // Check if the rate limiting key is whitelisted.
+                if self.key_extractor.whitelisted_keys().contains(&key) {
                     req.extensions_mut()
-                        .insert(GovernorResult::<K::KeyExtractionError>::ok());
+                        .insert(GovernorResult::<K::KeyExtractionError>::whitelist());
 
                     let fut = self.service.call(req);
                     Either::Left(fut.map_ok(|resp| resp.map_into_left_body()))
-                }
+                } else {
+                    match self.limiter.check_key(&key) {
+                        Ok(_) => {
+                            req.extensions_mut()
+                                .insert(GovernorResult::<K::KeyExtractionError>::ok());
 
-                Err(negative) => {
-                    let wait_time = negative
-                        .wait_time_from(DefaultClock::default().now())
-                        .as_secs();
+                            let fut = self.service.call(req);
+                            Either::Left(fut.map_ok(|resp| resp.map_into_left_body()))
+                        }
 
-                    #[cfg(feature = "log")]
-                    {
-                        let key_name = match self.key_extractor.key_name(&key) {
-                            Some(n) => format!(" [{}]", &n),
-                            None => "".to_owned(),
-                        };
-                        log::info!(
-                            "Rate limit exceeded for {}{}, quota reset in {}s",
-                            self.key_extractor.name(),
-                            key_name,
-                            &wait_time
-                        );
+                        Err(negative) => {
+                            let wait_time = negative
+                                .wait_time_from(DefaultClock::default().now())
+                                .as_secs();
+
+                            #[cfg(feature = "log")]
+                            {
+                                let key_name = match self.key_extractor.key_name(&key) {
+                                    Some(n) => format!(" [{}]", &n),
+                                    None => "".to_owned(),
+                                };
+                                log::info!(
+                                    "Rate limit exceeded for {}{}, quota reset in {}s",
+                                    self.key_extractor.name(),
+                                    key_name,
+                                    &wait_time
+                                );
+                            }
+
+                            req.extensions_mut()
+                                .insert(GovernorResult::<K::KeyExtractionError>::wait(wait_time));
+
+                            if self.permissive {
+                                let fut = self.service.call(req);
+                                return Either::Left(fut.map_ok(|resp| resp.map_into_left_body()));
+                            }
+
+                            let mut response_builder = actix_web::HttpResponse::TooManyRequests();
+                            response_builder.insert_header(("x-ratelimit-after", wait_time));
+                            let response = self
+                                .key_extractor
+                                .exceed_rate_limit_response(&negative, response_builder);
+
+                            let response = req.into_response(response);
+                            Either::Right(ok(response.map_into_right_body()))
+                        }
                     }
-
-                    req.extensions_mut()
-                        .insert(GovernorResult::<K::KeyExtractionError>::wait(wait_time));
-
-                    if self.permissive {
-                        let fut = self.service.call(req);
-                        return Either::Left(fut.map_ok(|resp| resp.map_into_left_body()));
-                    }
-
-                    let mut response_builder = actix_web::HttpResponse::TooManyRequests();
-                    response_builder.insert_header(("x-ratelimit-after", wait_time));
-                    let response = self
-                        .key_extractor
-                        .exceed_rate_limit_response(&negative, response_builder);
-
-                    let response = req.into_response(response);
-                    Either::Right(ok(response.map_into_right_body()))
                 }
-            },
+            }
 
             // Extraction failed, stop right now.
             Err(e) => {
@@ -221,72 +232,85 @@ where
         // Use the provided key extractor to extract the rate limiting key from the request.
         match self.key_extractor.extract(&req) {
             // Extraction worked, let's check if rate limiting is needed.
-            Ok(key) => match self.limiter.check_key(&key) {
-                Ok(snapshot) => {
-                    let burst_size = snapshot.quota().burst_size().get();
-                    let remaining = snapshot.remaining_burst_capacity();
-                    req.extensions_mut().insert(
-                        GovernorResult::<K::KeyExtractionError>::ok_with_info(
-                            burst_size, remaining,
-                        ),
-                    );
+            Ok(key) => {
+                // Check if the key is whitelisted.
+                if self.key_extractor.whitelisted_keys().contains(&key) {
+                    req.extensions_mut()
+                        .insert(GovernorResult::<K::KeyExtractionError>::whitelist());
 
                     let fut = self.service.call(req);
-                    if self.permissive {
-                        Either::Right(fut.map_ok(|resp| resp.map_into_left_body()))
-                    } else {
-                        Either::Left(Either::Left(Either::Left(RateLimitHeaderFut {
-                            future: fut.map_ok(|resp| resp.map_into_left_body()),
-                            burst_size,
-                            remaining_burst_capacity: remaining,
-                        })))
+                    Either::Left(Either::Left(Either::Right(WhitelistedHeaderFut {
+                        future: fut.map_ok(|resp| resp.map_into_left_body()),
+                    })))
+                } else {
+                    match self.limiter.check_key(&key) {
+                        Ok(snapshot) => {
+                            let burst_size = snapshot.quota().burst_size().get();
+                            let remaining = snapshot.remaining_burst_capacity();
+                            req.extensions_mut().insert(
+                                GovernorResult::<K::KeyExtractionError>::ok_with_info(
+                                    burst_size, remaining,
+                                ),
+                            );
+
+                            let fut = self.service.call(req);
+                            if self.permissive {
+                                Either::Right(fut.map_ok(|resp| resp.map_into_left_body()))
+                            } else {
+                                Either::Left(Either::Left(Either::Left(RateLimitHeaderFut {
+                                    future: fut.map_ok(|resp| resp.map_into_left_body()),
+                                    burst_size,
+                                    remaining_burst_capacity: remaining,
+                                })))
+                            }
+                        }
+
+                        Err(negative) => {
+                            let wait_time = negative
+                                .wait_time_from(DefaultClock::default().now())
+                                .as_secs();
+                            let burst_size = negative.quota().burst_size().get();
+
+                            #[cfg(feature = "log")]
+                            {
+                                let key_name = match self.key_extractor.key_name(&key) {
+                                    Some(n) => format!(" [{}]", &n),
+                                    None => "".to_owned(),
+                                };
+                                log::info!(
+                                    "Rate limit exceeded for {}{}, quota reset in {}s",
+                                    self.key_extractor.name(),
+                                    key_name,
+                                    &wait_time
+                                );
+                            }
+
+                            req.extensions_mut().insert(
+                                GovernorResult::<K::KeyExtractionError>::wait_with_info(
+                                    wait_time, burst_size,
+                                ),
+                            );
+
+                            if self.permissive {
+                                let fut = self.service.call(req);
+                                return Either::Right(fut.map_ok(|resp| resp.map_into_left_body()));
+                            }
+
+                            let mut response_builder = actix_web::HttpResponse::TooManyRequests();
+                            response_builder
+                                .insert_header(("x-ratelimit-after", wait_time))
+                                .insert_header(("x-ratelimit-limit", burst_size))
+                                .insert_header(("x-ratelimit-remaining", 0));
+                            let response = self
+                                .key_extractor
+                                .exceed_rate_limit_response(&negative, response_builder);
+
+                            let response = req.into_response(response);
+                            Either::Left(Either::Right(ok(response.map_into_right_body())))
+                        }
                     }
                 }
-
-                Err(negative) => {
-                    let wait_time = negative
-                        .wait_time_from(DefaultClock::default().now())
-                        .as_secs();
-                    let burst_size = negative.quota().burst_size().get();
-
-                    #[cfg(feature = "log")]
-                    {
-                        let key_name = match self.key_extractor.key_name(&key) {
-                            Some(n) => format!(" [{}]", &n),
-                            None => "".to_owned(),
-                        };
-                        log::info!(
-                            "Rate limit exceeded for {}{}, quota reset in {}s",
-                            self.key_extractor.name(),
-                            key_name,
-                            &wait_time
-                        );
-                    }
-
-                    req.extensions_mut().insert(
-                        GovernorResult::<K::KeyExtractionError>::wait_with_info(
-                            wait_time, burst_size,
-                        ),
-                    );
-
-                    if self.permissive {
-                        let fut = self.service.call(req);
-                        return Either::Right(fut.map_ok(|resp| resp.map_into_left_body()));
-                    }
-
-                    let mut response_builder = actix_web::HttpResponse::TooManyRequests();
-                    response_builder
-                        .insert_header(("x-ratelimit-after", wait_time))
-                        .insert_header(("x-ratelimit-limit", burst_size))
-                        .insert_header(("x-ratelimit-remaining", 0));
-                    let response = self
-                        .key_extractor
-                        .exceed_rate_limit_response(&negative, response_builder);
-
-                    let response = req.into_response(response);
-                    Either::Left(Either::Right(ok(response.map_into_right_body())))
-                }
-            },
+            }
 
             // Extraction failed, stop right now.
             Err(e) => {
