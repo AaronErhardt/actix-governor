@@ -1,6 +1,6 @@
 use crate::extractor::GovernorExtractor;
 use crate::{GovernorResult, KeyExtractor, SimpleKeyExtractionError};
-use actix_http::header::{HeaderName, HeaderValue};
+use actix_http::header::{HeaderMap, HeaderName, HeaderValue};
 use actix_web::{
     dev::Service,
     http::{
@@ -591,22 +591,27 @@ async fn test_key_extraction_whitelisted_key() {
             .route("/", web::get().to(hello)),
     )
     .await;
-    let create_req_and_test = |user_token: HeaderValue| async {
+    let create_res = |user_token: HeaderValue| async {
         let mut req = test::TestRequest::get().uri("/").to_request();
         req.headers_mut()
             .insert(HeaderName::from_static("super-token"), user_token);
         let test = test::call_service(&app, req).await;
-        dbg!(test.headers());
-        assert_eq!(test.status(), StatusCode::OK);
+        test.status().as_u16()
     };
-    // First request
-    create_req_and_test(HeaderValue::from_static("AdminSecretToken")).await;
-    // Second request
-    create_req_and_test(HeaderValue::from_static("AdminSecretToken")).await;
-    // Third request
-    create_req_and_test(HeaderValue::from_static("AdminSecretToken2")).await;
-    // Fourth request
-    create_req_and_test(HeaderValue::from_static("AdminSecretToken2")).await;
+    // First request (whitelisted)
+    assert_eq!(create_res("AdminSecretToken".parse().unwrap()).await, 200);
+    // Second request (whitelisted)
+    assert_eq!(create_res("AdminSecretToken".parse().unwrap()).await, 200);
+    // Third request (whitelisted)
+    assert_eq!(create_res("AdminSecretToken2".parse().unwrap()).await, 200);
+    // Fourth request (whitelisted)
+    assert_eq!(create_res("AdminSecretToken2".parse().unwrap()).await, 200);
+    // First request (not whitelisted)
+    assert_eq!(create_res("UnWhiteListedToken".parse().unwrap()).await, 200);
+    // Second request (not whitelisted)
+    assert_eq!(create_res("UnWhiteListedToken".parse().unwrap()).await, 200);
+    // Third request (not whitelisted)
+    assert_eq!(create_res("UnWhiteListedToken".parse().unwrap()).await, 429);
 }
 
 #[actix_rt::test]
@@ -627,40 +632,84 @@ async fn test_key_extraction_whitelisted_key_with_header() {
             .route("/", web::get().to(hello)),
     )
     .await;
-    let create_req_and_test = |user_token: HeaderValue| async {
+    let create_res = |user_token: HeaderValue| async {
         let mut req = test::TestRequest::get().uri("/").to_request();
         req.headers_mut()
             .insert(HeaderName::from_static("super-token"), user_token);
         let test = test::call_service(&app, req).await;
-        dbg!(test.headers());
-        assert_eq!(test.status(), StatusCode::OK);
-        assert_eq!(
-            test.headers()
-                .get(HeaderName::from_static("x-ratelimit-whitelisted"))
-                .unwrap(),
-            "true"
-        );
-        assert!(test
-            .headers()
-            .get(HeaderName::from_static("x-ratelimit-limit"))
-            .is_none());
-        assert!(test
-            .headers()
-            .get(HeaderName::from_static("x-ratelimit-remaining"))
-            .is_none());
-        assert!(test
-            .headers()
-            .get(HeaderName::from_static("x-ratelimit-after"))
-            .is_none());
+        (test.headers().clone(), test.status().as_u16())
     };
-    // First request
-    create_req_and_test(HeaderValue::from_static("AdminSecretToken")).await;
-    // Second request
-    create_req_and_test(HeaderValue::from_static("AdminSecretToken")).await;
-    // Third request
-    create_req_and_test(HeaderValue::from_static("AdminSecretToken2")).await;
-    // Fourth request
-    create_req_and_test(HeaderValue::from_static("AdminSecretToken2")).await;
+    #[rustfmt::skip]
+    let test_res = move |(headers, status): (HeaderMap, u16)| {
+        move |
+            whitelisted: Option<&HeaderValue>,
+            limit: Option<&HeaderValue>,
+            remaining: Option<&HeaderValue>,
+            after: Option<&HeaderValue>,
+            excepted_status: u16| {
+            assert_eq!(status, excepted_status);
+            assert_eq!(headers.get("x-ratelimit-whitelisted"), whitelisted);
+            assert_eq!(headers.get("x-ratelimit-limit"), limit);
+            assert_eq!(headers.get("x-ratelimit-remaining"), remaining);
+            assert_eq!(headers.get("x-ratelimit-after"), after);
+        }
+    };
+    // First request (whitelisted)
+    test_res(create_res("AdminSecretToken".parse().unwrap()).await)(
+        Some(&"true".parse().unwrap()),
+        None,
+        None,
+        None,
+        200,
+    );
+    // Second request (whitelisted)
+    test_res(create_res("AdminSecretToken2".parse().unwrap()).await)(
+        Some(&"true".parse().unwrap()),
+        None,
+        None,
+        None,
+        200,
+    );
+    // Third request (whitelisted)
+    test_res(create_res("AdminSecretToken2".parse().unwrap()).await)(
+        Some(&"true".parse().unwrap()),
+        None,
+        None,
+        None,
+        200,
+    );
+    // Fourth request (whitelisted)
+    test_res(create_res("AdminSecretToken2".parse().unwrap()).await)(
+        Some(&"true".parse().unwrap()),
+        None,
+        None,
+        None,
+        200,
+    );
+    // First request (not whitelisted)
+    test_res(create_res("UnWhiteListedToken".parse().unwrap()).await)(
+        None,
+        Some(&"2".parse().unwrap()),
+        Some(&"1".parse().unwrap()),
+        None,
+        200,
+    );
+    // Second request (not whitelisted)
+    test_res(create_res("UnWhiteListedToken".parse().unwrap()).await)(
+        None,
+        Some(&"2".parse().unwrap()),
+        Some(&"0".parse().unwrap()),
+        None,
+        200,
+    );
+    // Third request (not whitelisted)
+    test_res(create_res("UnWhiteListedToken".parse().unwrap()).await)(
+        None,
+        Some(&"2".parse().unwrap()),
+        Some(&"0".parse().unwrap()),
+        Some(&"2".parse().unwrap()),
+        429,
+    );
 }
 
 #[actix_rt::test]
