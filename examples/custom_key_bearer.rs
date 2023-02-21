@@ -22,14 +22,14 @@ impl KeyExtractor for UserToken {
             .get("Authorization")
             .and_then(|token| token.to_str().ok())
             .and_then(|token| token.strip_prefix("Bearer "))
-            .and_then(|token| Some(token.trim().to_owned()))
-            .ok_or(
+            .map(|token| token.trim().to_owned())
+            .ok_or_else(|| {
                 Self::KeyExtractionError::new(
                     r#"{ "code": 401, "msg": "You don't have permission to access"}"#,
                 )
                 .set_content_type(ContentType::json())
-                .set_status_code(StatusCode::UNAUTHORIZED),
-            )
+                .set_status_code(StatusCode::UNAUTHORIZED)
+            })
     }
 
     fn exceed_rate_limit_response(
