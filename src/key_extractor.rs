@@ -98,6 +98,11 @@ pub trait KeyExtractor: Clone {
             .body(format!("Too many requests, retry in {}s", wait_time))
     }
 
+    /// Returns a list of whitelisted keys. If a key is in this list, it will never be rate-limited.
+    fn whitelisted_keys(&self) -> Vec<Self::Key> {
+        Vec::new()
+    }
+
     #[cfg(feature = "log")]
     /// Value of the extracted key (only used in logs).
     fn key_name(&self, _key: &Self::Key) -> Option<String> {
