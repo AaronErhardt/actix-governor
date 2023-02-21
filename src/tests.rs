@@ -10,6 +10,31 @@ use actix_web::{
     web, App, HttpResponse, HttpResponseBuilder, Responder,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WhitelistedKeyExtractor;
+
+impl KeyExtractor for WhitelistedKeyExtractor {
+    type Key = String;
+    type KeyExtractionError = SimpleKeyExtractionError<String>;
+
+    fn extract(
+        &self,
+        req: &actix_web::dev::ServiceRequest,
+    ) -> Result<Self::Key, Self::KeyExtractionError> {
+        req.headers()
+            .get("super-token")
+            .map(|v| v.to_str().unwrap().to_owned())
+            .ok_or_else(|| SimpleKeyExtractionError::new("Missing super-token header".to_owned()))
+    }
+
+    fn whitelisted_keys(&self) -> Vec<Self::Key> {
+        vec![
+            "AdminSecretToken".to_owned(),
+            "AdminSecretToken2".to_owned(),
+        ]
+    }
+}
+
 #[test]
 fn builder_test() {
     use crate::GovernorConfigBuilder;
@@ -547,6 +572,95 @@ async fn test_json_error_response() {
         .await
         .unwrap();
     assert_eq!(body, "{\"msg\":\"Test\"}".to_owned());
+}
+
+#[actix_rt::test]
+async fn test_key_extraction_whitelisted_key() {
+    use crate::{Governor, GovernorConfigBuilder};
+    use actix_web::test;
+
+    let config = GovernorConfigBuilder::default()
+        .burst_size(2)
+        .per_second(3)
+        .key_extractor(WhitelistedKeyExtractor)
+        .finish()
+        .unwrap();
+    let app = test::init_service(
+        App::new()
+            .wrap(Governor::new(&config))
+            .route("/", web::get().to(hello)),
+    )
+    .await;
+    let create_req_and_test = |user_token: HeaderValue| async {
+        let mut req = test::TestRequest::get().uri("/").to_request();
+        req.headers_mut()
+            .insert(HeaderName::from_static("super-token"), user_token);
+        let test = test::call_service(&app, req).await;
+        dbg!(test.headers());
+        assert_eq!(test.status(), StatusCode::OK);
+    };
+    // First request
+    create_req_and_test(HeaderValue::from_static("AdminSecretToken")).await;
+    // Second request
+    create_req_and_test(HeaderValue::from_static("AdminSecretToken")).await;
+    // Third request
+    create_req_and_test(HeaderValue::from_static("AdminSecretToken2")).await;
+    // Fourth request
+    create_req_and_test(HeaderValue::from_static("AdminSecretToken2")).await;
+}
+
+#[actix_rt::test]
+async fn test_key_extraction_whitelisted_key_with_header() {
+    use crate::{Governor, GovernorConfigBuilder};
+    use actix_web::test;
+
+    let config = GovernorConfigBuilder::default()
+        .burst_size(2)
+        .per_second(3)
+        .key_extractor(WhitelistedKeyExtractor)
+        .use_headers()
+        .finish()
+        .unwrap();
+    let app = test::init_service(
+        App::new()
+            .wrap(Governor::new(&config))
+            .route("/", web::get().to(hello)),
+    )
+    .await;
+    let create_req_and_test = |user_token: HeaderValue| async {
+        let mut req = test::TestRequest::get().uri("/").to_request();
+        req.headers_mut()
+            .insert(HeaderName::from_static("super-token"), user_token);
+        let test = test::call_service(&app, req).await;
+        dbg!(test.headers());
+        assert_eq!(test.status(), StatusCode::OK);
+        assert_eq!(
+            test.headers()
+                .get(HeaderName::from_static("x-ratelimit-whitelisted"))
+                .unwrap(),
+            "true"
+        );
+        assert!(test
+            .headers()
+            .get(HeaderName::from_static("x-ratelimit-limit"))
+            .is_none());
+        assert!(test
+            .headers()
+            .get(HeaderName::from_static("x-ratelimit-remaining"))
+            .is_none());
+        assert!(test
+            .headers()
+            .get(HeaderName::from_static("x-ratelimit-after"))
+            .is_none());
+    };
+    // First request
+    create_req_and_test(HeaderValue::from_static("AdminSecretToken")).await;
+    // Second request
+    create_req_and_test(HeaderValue::from_static("AdminSecretToken")).await;
+    // Third request
+    create_req_and_test(HeaderValue::from_static("AdminSecretToken2")).await;
+    // Fourth request
+    create_req_and_test(HeaderValue::from_static("AdminSecretToken2")).await;
 }
 
 #[actix_rt::test]
