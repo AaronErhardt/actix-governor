@@ -7,7 +7,6 @@
 //! + High customizability
 //! + High performance
 //! + Robust yet flexible API
-//! + Actively maintained as part of the [Triox-Project](https://github.com/AaronErhardt/Triox)
 //!
 //! # How does it work?
 //!
