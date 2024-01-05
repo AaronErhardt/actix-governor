@@ -229,7 +229,8 @@ impl KeyExtractor for GlobalKeyExtractor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// A [KeyExtractor] that uses peer IP as key. **This is the default key extractor and [it may no do want you want](PeerIpKeyExtractor).**
 ///
-/// **Warning:** this key extractor enforces rate limiting based on the **_peer_ IP address**.
+/// **Warning:** this key extractor enforces rate limiting based on the **IPv4 _peer_ IP address**
+/// or the **IPv6 /56 prefix of the _peer_ IP address**.
 ///
 /// This means that if your app is deployed behind a reverse proxy, the peer IP address will _always_ be the proxy's IP address.
 /// In this case, rate limiting will be applied to _all_ incoming requests as if they were from the same user.
@@ -249,9 +250,17 @@ impl KeyExtractor for PeerIpKeyExtractor {
     }
 
     fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
-        req.peer_addr().map(|socket| socket.ip()).ok_or_else(|| {
+        let mut ip = req.peer_addr().map(|socket| socket.ip()).ok_or_else(|| {
             SimpleKeyExtractionError::new("Could not extract peer IP address from request")
-        })
+        })?;
+        // customers often get their own /56 prefix, apply rate-limiting per prefix instead of per
+        // address for IPv6
+        if let IpAddr::V6(ipv6) = ip {
+            let mut octets = ipv6.octets();
+            octets[7..16].fill(0);
+            ip = IpAddr::V6(octets.into());
+        }
+        Ok(ip)
     }
 
     #[cfg(feature = "log")]
