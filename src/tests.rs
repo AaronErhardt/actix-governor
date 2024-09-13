@@ -47,8 +47,8 @@ fn builder_test() {
     assert_eq!(GovernorConfigBuilder::default(), builder);
 
     let mut builder1 = builder.clone();
-    builder1.per_millisecond(5000);
-    let builder2 = builder.per_second(5);
+    builder1.milliseconds_per_request(5000);
+    let builder2 = builder.seconds_per_request(5);
 
     assert_eq!(&builder1, builder2);
 }
@@ -63,7 +63,7 @@ async fn test_server() {
     use actix_web::test;
 
     let config = GovernorConfigBuilder::default()
-        .per_millisecond(90)
+        .milliseconds_per_request(90)
         .burst_size(2)
         .finish()
         .unwrap();
@@ -143,7 +143,7 @@ async fn test_method_filter() {
     use actix_web::test;
 
     let config = GovernorConfigBuilder::default()
-        .per_millisecond(90)
+        .milliseconds_per_request(90)
         .burst_size(2)
         .methods(vec![Method::GET])
         .finish()
@@ -206,7 +206,7 @@ async fn test_server_use_headers() {
     use actix_web::test;
 
     let config = GovernorConfigBuilder::default()
-        .per_millisecond(90)
+        .milliseconds_per_request(90)
         .burst_size(2)
         .use_headers()
         .finish()
@@ -380,7 +380,7 @@ async fn test_method_filter_use_headers() {
     use actix_web::test;
 
     let config = GovernorConfigBuilder::default()
-        .per_millisecond(90)
+        .milliseconds_per_request(90)
         .burst_size(2)
         .methods(vec![Method::GET])
         .use_headers()
@@ -544,7 +544,7 @@ async fn test_json_error_response() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(FooKeyExtractor)
         .finish()
         .unwrap();
@@ -581,7 +581,7 @@ async fn test_key_extraction_whitelisted_key() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(WhitelistedKeyExtractor)
         .finish()
         .unwrap();
@@ -621,7 +621,7 @@ async fn test_key_extraction_whitelisted_key_with_header() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(WhitelistedKeyExtractor)
         .use_headers()
         .finish()
@@ -663,7 +663,7 @@ async fn test_key_extraction_unwhitelisted_key_with_header() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(WhitelistedKeyExtractor)
         .use_headers()
         .finish()
@@ -755,7 +755,7 @@ async fn test_forbidden_response_error() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(FooKeyExtractor)
         .finish()
         .unwrap();
@@ -807,7 +807,7 @@ async fn test_html_error_response() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(FooKeyExtractor)
         .finish()
         .unwrap();
@@ -860,7 +860,7 @@ async fn test_network_authentication_required_response_error() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(FooKeyExtractor)
         .finish()
         .unwrap();
@@ -899,7 +899,7 @@ async fn test_server_permissive() {
     use actix_web::web::Bytes;
 
     let config = GovernorConfigBuilder::default()
-        .per_millisecond(90)
+        .milliseconds_per_request(90)
         .burst_size(2)
         .permissive(true)
         .finish()

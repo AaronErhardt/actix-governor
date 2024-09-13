@@ -9,10 +9,10 @@ rate-limiting backed by [governor](https://github.com/antifuchs/governor).
 
 ## Features:
 
-+ Simple to use
-+ High customizability
-+ High performance
-+ Robust yet flexible API
+- Simple to use
+- High customizability
+- High performance
+- Robust yet flexible API
 
 ## Example
 
@@ -29,7 +29,7 @@ async fn main() -> std::io::Result<()> {
     // Allow bursts with up to five requests per IP address
     // and replenishes one element every two seconds
     let governor_conf = GovernorConfigBuilder::default()
-        .per_second(2)
+        .seconds_per_request(2)
         .burst_size(5)
         .finish()
         .unwrap();
@@ -51,5 +51,5 @@ async fn main() -> std::io::Result<()> {
 
 ```toml
 [dependencies]
-actix-governor = "0.4"
+actix-governor = "0.6"
 ```
