@@ -138,6 +138,87 @@ async fn test_server() {
 }
 
 #[actix_rt::test]
+async fn test_server_per_second() {
+    use crate::{Governor, GovernorConfigBuilder};
+    use actix_web::test;
+
+    let config = GovernorConfigBuilder::default()
+        // Another way of writing `.milliseconds_per_request(100)`
+        .requests_per_second(10)
+        .burst_size(2)
+        .finish()
+        .unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(Governor::new(&config))
+            .route("/", web::get().to(hello)),
+    )
+    .await;
+
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80u16);
+
+    // First request
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = test::call_service(&app, req).await;
+    assert_eq!(test.status(), StatusCode::OK);
+
+    // Second request
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = test::call_service(&app, req).await;
+    assert_eq!(test.status(), StatusCode::OK);
+
+    // Third request -> Over limit, returns Error
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = app.call(req).await.unwrap();
+    assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        test.headers()
+            .get(HeaderName::from_static("x-ratelimit-after"))
+            .unwrap(),
+        "0"
+    );
+
+    // Replenish one element by waiting for >1/10th second
+    let sleep_time = std::time::Duration::from_millis(110);
+    std::thread::sleep(sleep_time);
+
+    // First request after reset
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = test::call_service(&app, req).await;
+    assert_eq!(test.status(), StatusCode::OK);
+
+    // Second request after reset -> Again over limit, returns Error
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = app.call(req).await.unwrap();
+    assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        test.headers()
+            .get(HeaderName::from_static("x-ratelimit-after"))
+            .unwrap(),
+        "0"
+    );
+    let body = actix_web::body::to_bytes(test.into_body()).await.unwrap();
+    assert_eq!(body, "Too many requests, retry in 0s");
+}
+
+#[actix_rt::test]
 async fn test_method_filter() {
     use crate::{Governor, GovernorConfigBuilder, Method};
     use actix_web::test;

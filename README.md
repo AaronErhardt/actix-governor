@@ -27,9 +27,9 @@ async fn index() -> impl Responder {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Allow bursts with up to five requests per IP address
-    // and replenishes one element every two seconds
+    // and replenishes two elements per second
     let governor_conf = GovernorConfigBuilder::default()
-        .seconds_per_request(2)
+        .requests_per_second(2)
         .burst_size(5)
         .finish()
         .unwrap();

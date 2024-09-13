@@ -284,6 +284,21 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyEx
         self.period = duration;
         self
     }
+    /// Set the number of quota elements to replenish per second.
+    pub fn const_requests_per_second(self, count: u64) -> Self {
+        let replenish_interval_ns = Duration::from_secs(1).as_nanos() / count as u128;
+        self.const_nanoseconds_per_request(replenish_interval_ns as u64)
+    }
+    /// Set the number of quota elements to replenish per minute.
+    pub fn const_requests_per_minute(self, count: u64) -> Self {
+        let replenish_interval_ns = Duration::from_secs(60).as_nanos() / count as u128;
+        self.const_nanoseconds_per_request(replenish_interval_ns as u64)
+    }
+    /// Set the number of quota elements to replenish per hour.
+    pub fn const_requests_per_hour(self, count: u64) -> Self {
+        let replenish_interval_ns = Duration::from_secs(60 * 60).as_nanos() / count as u128;
+        self.const_nanoseconds_per_request(replenish_interval_ns as u64)
+    }
     /// Renamed to `const_seconds_per_request`.
     ///
     /// **The interval must not be zero.**
@@ -364,6 +379,21 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
     pub fn period(&mut self, duration: Duration) -> &mut Self {
         self.period = duration;
         self
+    }
+    /// Set the number of quota elements to replenish per second.
+    pub fn requests_per_second(&mut self, count: u64) -> &mut Self {
+        let replenish_interval_ns = Duration::from_secs(1).as_nanos() / count as u128;
+        self.nanoseconds_per_request(replenish_interval_ns as u64)
+    }
+    /// Set the number of quota elements to replenish per minute.
+    pub fn requests_per_minute(&mut self, count: u64) -> &mut Self {
+        let replenish_interval_ns = Duration::from_secs(60).as_nanos() / count as u128;
+        self.nanoseconds_per_request(replenish_interval_ns as u64)
+    }
+    /// Set the number of quota elements to replenish per hour.
+    pub fn requests_per_hour(&mut self, count: u64) -> &mut Self {
+        let replenish_interval_ns = Duration::from_secs(60 * 60).as_nanos() / count as u128;
+        self.nanoseconds_per_request(replenish_interval_ns as u64)
     }
     /// Renamed to `seconds_per_request`.
     ///
