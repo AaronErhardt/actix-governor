@@ -304,7 +304,7 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyEx
     /// **The interval must not be zero.**
     #[deprecated(
         since = "0.6.0",
-        note = "Might be the inverse of what's expected. Use `seconds_per_request` as an exact replacement."
+        note = "Might be the inverse of what's expected. Use `const_seconds_per_request` as an exact replacement."
     )]
     pub const fn const_per_second(mut self, seconds: u64) -> Self {
         self.period = Duration::from_secs(seconds);
@@ -322,7 +322,7 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyEx
     /// **The interval must not be zero.**
     #[deprecated(
         since = "0.6.0",
-        note = "Might be the inverse of what's expected. Use `seconds_per_request` as an exact replacement."
+        note = "Might be the inverse of what's expected. Use `const_milliseconds_per_request` as an exact replacement."
     )]
     pub const fn const_per_millisecond(mut self, milliseconds: u64) -> Self {
         self.period = Duration::from_millis(milliseconds);
@@ -340,7 +340,7 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyEx
     /// **The interval must not be zero.**
     #[deprecated(
         since = "0.6.0",
-        note = "Might be the inverse of what's expected. Use `seconds_per_request` as an exact replacement."
+        note = "Might be the inverse of what's expected. Use `const_nanoseconds_per_request` as an exact replacement."
     )]
     pub const fn const_per_nanosecond(mut self, nanoseconds: u64) -> Self {
         self.period = Duration::from_nanos(nanoseconds);
