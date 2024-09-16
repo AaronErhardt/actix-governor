@@ -43,7 +43,7 @@
 //!     // Allow bursts with up to five requests per IP address
 //!     // and replenishes one element every two seconds
 //!     let governor_conf = GovernorConfigBuilder::default()
-//!         .per_second(2)
+//!         .seconds_per_request(2)
 //!         .burst_size(5)
 //!         .finish()
 //!         .unwrap();
@@ -77,7 +77,7 @@
 //! use actix_governor::GovernorConfigBuilder;
 //!
 //! let config = GovernorConfigBuilder::default()
-//!     .per_second(4)
+//!     .seconds_per_request(4)
 //!     .burst_size(2)
 //!     .finish()
 //!     .unwrap();
@@ -200,7 +200,7 @@ const DEFAULT_BURST_SIZE: u32 = 8;
 /// use actix_governor::GovernorConfigBuilder;
 ///
 /// let config = GovernorConfigBuilder::default()
-///     .per_second(60)
+///     .seconds_per_request(60)
 ///     .burst_size(10)
 ///     .finish()
 ///     .unwrap();
@@ -212,7 +212,7 @@ const DEFAULT_BURST_SIZE: u32 = 8;
 /// use actix_governor::GovernorConfigBuilder;
 ///
 /// let config = GovernorConfigBuilder::default()
-///     .per_second(60)
+///     .seconds_per_request(60)
 ///     .burst_size(10)
 ///     .use_headers() // Add this
 ///     .finish()
@@ -284,24 +284,72 @@ impl<M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBuilder<PeerIpKeyEx
         self.period = duration;
         self
     }
+    /// Set the number of quota elements to replenish per second.
+    pub fn const_requests_per_second(self, count: u64) -> Self {
+        let replenish_interval_ns = Duration::from_secs(1).as_nanos() / count as u128;
+        self.const_nanoseconds_per_request(replenish_interval_ns as u64)
+    }
+    /// Set the number of quota elements to replenish per minute.
+    pub fn const_requests_per_minute(self, count: u64) -> Self {
+        let replenish_interval_ns = Duration::from_secs(60).as_nanos() / count as u128;
+        self.const_nanoseconds_per_request(replenish_interval_ns as u64)
+    }
+    /// Set the number of quota elements to replenish per hour.
+    pub fn const_requests_per_hour(self, count: u64) -> Self {
+        let replenish_interval_ns = Duration::from_secs(60 * 60).as_nanos() / count as u128;
+        self.const_nanoseconds_per_request(replenish_interval_ns as u64)
+    }
+    /// Renamed to `const_seconds_per_request`.
+    ///
+    /// **The interval must not be zero.**
+    #[deprecated(
+        since = "0.6.0",
+        note = "Might be the inverse of what's expected. Use `const_seconds_per_request` as an exact replacement."
+    )]
+    pub const fn const_per_second(mut self, seconds: u64) -> Self {
+        self.period = Duration::from_secs(seconds);
+        self
+    }
     /// Set the interval after which one element of the quota is replenished in seconds.
     ///
     /// **The interval must not be zero.**
-    pub const fn const_per_second(mut self, seconds: u64) -> Self {
+    pub const fn const_second_per_request(mut self, seconds: u64) -> Self {
         self.period = Duration::from_secs(seconds);
+        self
+    }
+    /// Renamed to `const_milliseconds_per_request`.
+    ///
+    /// **The interval must not be zero.**
+    #[deprecated(
+        since = "0.6.0",
+        note = "Might be the inverse of what's expected. Use `const_milliseconds_per_request` as an exact replacement."
+    )]
+    pub const fn const_per_millisecond(mut self, milliseconds: u64) -> Self {
+        self.period = Duration::from_millis(milliseconds);
         self
     }
     /// Set the interval after which one element of the quota is replenished in milliseconds.
     ///
     /// **The interval must not be zero.**
-    pub const fn const_per_millisecond(mut self, milliseconds: u64) -> Self {
+    pub const fn const_milliseconds_per_request(mut self, milliseconds: u64) -> Self {
         self.period = Duration::from_millis(milliseconds);
+        self
+    }
+    /// Renamed to `const_nanoseconds_per_request`.
+    ///
+    /// **The interval must not be zero.**
+    #[deprecated(
+        since = "0.6.0",
+        note = "Might be the inverse of what's expected. Use `const_nanoseconds_per_request` as an exact replacement."
+    )]
+    pub const fn const_per_nanosecond(mut self, nanoseconds: u64) -> Self {
+        self.period = Duration::from_nanos(nanoseconds);
         self
     }
     /// Set the interval after which one element of the quota is replenished in nanoseconds.
     ///
     /// **The interval must not be zero.**
-    pub const fn const_per_nanosecond(mut self, nanoseconds: u64) -> Self {
+    pub const fn const_nanoseconds_per_request(mut self, nanoseconds: u64) -> Self {
         self.period = Duration::from_nanos(nanoseconds);
         self
     }
@@ -332,24 +380,72 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
         self.period = duration;
         self
     }
+    /// Set the number of quota elements to replenish per second.
+    pub fn requests_per_second(&mut self, count: u64) -> &mut Self {
+        let replenish_interval_ns = Duration::from_secs(1).as_nanos() / count as u128;
+        self.nanoseconds_per_request(replenish_interval_ns as u64)
+    }
+    /// Set the number of quota elements to replenish per minute.
+    pub fn requests_per_minute(&mut self, count: u64) -> &mut Self {
+        let replenish_interval_ns = Duration::from_secs(60).as_nanos() / count as u128;
+        self.nanoseconds_per_request(replenish_interval_ns as u64)
+    }
+    /// Set the number of quota elements to replenish per hour.
+    pub fn requests_per_hour(&mut self, count: u64) -> &mut Self {
+        let replenish_interval_ns = Duration::from_secs(60 * 60).as_nanos() / count as u128;
+        self.nanoseconds_per_request(replenish_interval_ns as u64)
+    }
+    /// Renamed to `seconds_per_request`.
+    ///
+    /// **The interval must not be zero.**
+    #[deprecated(
+        since = "0.6.0",
+        note = "Might be the inverse of what's expected. Use `seconds_per_request` as an exact replacement."
+    )]
+    pub fn per_second(&mut self, seconds: u64) -> &mut Self {
+        self.period = Duration::from_secs(seconds);
+        self
+    }
     /// Set the interval after which one element of the quota is replenished in seconds.
     ///
     /// **The interval must not be zero.**
-    pub fn per_second(&mut self, seconds: u64) -> &mut Self {
+    pub fn seconds_per_request(&mut self, seconds: u64) -> &mut Self {
         self.period = Duration::from_secs(seconds);
+        self
+    }
+    /// Renamed to `milliseconds_per_request`.
+    ///
+    /// **The interval must not be zero.**
+    #[deprecated(
+        since = "0.6.0",
+        note = "Might be the inverse of what's expected. Use `milliseconds_per_request` as an exact replacement."
+    )]
+    pub fn per_millisecond(&mut self, milliseconds: u64) -> &mut Self {
+        self.period = Duration::from_millis(milliseconds);
         self
     }
     /// Set the interval after which one element of the quota is replenished in milliseconds.
     ///
     /// **The interval must not be zero.**
-    pub fn per_millisecond(&mut self, milliseconds: u64) -> &mut Self {
+    pub fn milliseconds_per_request(&mut self, milliseconds: u64) -> &mut Self {
         self.period = Duration::from_millis(milliseconds);
+        self
+    }
+    /// Renamed to `nanoseconds_per_request`.
+    ///
+    /// **The interval must not be zero.**
+    #[deprecated(
+        since = "0.6.0",
+        note = "Might be the inverse of what's expected. Use `nanoseconds_per_request` as an exact replacement."
+    )]
+    pub fn per_nanosecond(&mut self, nanoseconds: u64) -> &mut Self {
+        self.period = Duration::from_nanos(nanoseconds);
         self
     }
     /// Set the interval after which one element of the quota is replenished in nanoseconds.
     ///
     /// **The interval must not be zero.**
-    pub fn per_nanosecond(&mut self, nanoseconds: u64) -> &mut Self {
+    pub fn nanoseconds_per_request(&mut self, nanoseconds: u64) -> &mut Self {
         self.period = Duration::from_nanos(nanoseconds);
         self
     }

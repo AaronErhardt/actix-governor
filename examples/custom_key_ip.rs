@@ -78,7 +78,7 @@ async fn main() -> std::io::Result<()> {
     // Allow bursts with up to five requests per IP address
     // and replenishes one element every two seconds
     let governor_conf = GovernorConfigBuilder::default()
-        .per_second(20)
+        .seconds_per_request(2)
         .burst_size(5)
         .key_extractor(RealIpKeyExtractor)
         .finish()

@@ -47,8 +47,8 @@ fn builder_test() {
     assert_eq!(GovernorConfigBuilder::default(), builder);
 
     let mut builder1 = builder.clone();
-    builder1.per_millisecond(5000);
-    let builder2 = builder.per_second(5);
+    builder1.milliseconds_per_request(5000);
+    let builder2 = builder.seconds_per_request(5);
 
     assert_eq!(&builder1, builder2);
 }
@@ -63,7 +63,7 @@ async fn test_server() {
     use actix_web::test;
 
     let config = GovernorConfigBuilder::default()
-        .per_millisecond(90)
+        .milliseconds_per_request(90)
         .burst_size(2)
         .finish()
         .unwrap();
@@ -138,12 +138,93 @@ async fn test_server() {
 }
 
 #[actix_rt::test]
+async fn test_server_per_second() {
+    use crate::{Governor, GovernorConfigBuilder};
+    use actix_web::test;
+
+    let config = GovernorConfigBuilder::default()
+        // Another way of writing `.milliseconds_per_request(100)`
+        .requests_per_second(10)
+        .burst_size(2)
+        .finish()
+        .unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(Governor::new(&config))
+            .route("/", web::get().to(hello)),
+    )
+    .await;
+
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80u16);
+
+    // First request
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = test::call_service(&app, req).await;
+    assert_eq!(test.status(), StatusCode::OK);
+
+    // Second request
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = test::call_service(&app, req).await;
+    assert_eq!(test.status(), StatusCode::OK);
+
+    // Third request -> Over limit, returns Error
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = app.call(req).await.unwrap();
+    assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        test.headers()
+            .get(HeaderName::from_static("x-ratelimit-after"))
+            .unwrap(),
+        "0"
+    );
+
+    // Replenish one element by waiting for >1/10th second
+    let sleep_time = std::time::Duration::from_millis(110);
+    std::thread::sleep(sleep_time);
+
+    // First request after reset
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = test::call_service(&app, req).await;
+    assert_eq!(test.status(), StatusCode::OK);
+
+    // Second request after reset -> Again over limit, returns Error
+    let req = test::TestRequest::get()
+        .peer_addr(addr)
+        .uri("/")
+        .to_request();
+    let test = app.call(req).await.unwrap();
+    assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        test.headers()
+            .get(HeaderName::from_static("x-ratelimit-after"))
+            .unwrap(),
+        "0"
+    );
+    let body = actix_web::body::to_bytes(test.into_body()).await.unwrap();
+    assert_eq!(body, "Too many requests, retry in 0s");
+}
+
+#[actix_rt::test]
 async fn test_method_filter() {
     use crate::{Governor, GovernorConfigBuilder, Method};
     use actix_web::test;
 
     let config = GovernorConfigBuilder::default()
-        .per_millisecond(90)
+        .milliseconds_per_request(90)
         .burst_size(2)
         .methods(vec![Method::GET])
         .finish()
@@ -206,7 +287,7 @@ async fn test_server_use_headers() {
     use actix_web::test;
 
     let config = GovernorConfigBuilder::default()
-        .per_millisecond(90)
+        .milliseconds_per_request(90)
         .burst_size(2)
         .use_headers()
         .finish()
@@ -380,7 +461,7 @@ async fn test_method_filter_use_headers() {
     use actix_web::test;
 
     let config = GovernorConfigBuilder::default()
-        .per_millisecond(90)
+        .milliseconds_per_request(90)
         .burst_size(2)
         .methods(vec![Method::GET])
         .use_headers()
@@ -544,7 +625,7 @@ async fn test_json_error_response() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(FooKeyExtractor)
         .finish()
         .unwrap();
@@ -581,7 +662,7 @@ async fn test_key_extraction_whitelisted_key() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(WhitelistedKeyExtractor)
         .finish()
         .unwrap();
@@ -621,7 +702,7 @@ async fn test_key_extraction_whitelisted_key_with_header() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(WhitelistedKeyExtractor)
         .use_headers()
         .finish()
@@ -663,7 +744,7 @@ async fn test_key_extraction_unwhitelisted_key_with_header() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(WhitelistedKeyExtractor)
         .use_headers()
         .finish()
@@ -755,7 +836,7 @@ async fn test_forbidden_response_error() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(FooKeyExtractor)
         .finish()
         .unwrap();
@@ -807,7 +888,7 @@ async fn test_html_error_response() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(FooKeyExtractor)
         .finish()
         .unwrap();
@@ -860,7 +941,7 @@ async fn test_network_authentication_required_response_error() {
 
     let config = GovernorConfigBuilder::default()
         .burst_size(2)
-        .per_second(3)
+        .seconds_per_request(3)
         .key_extractor(FooKeyExtractor)
         .finish()
         .unwrap();
@@ -899,7 +980,7 @@ async fn test_server_permissive() {
     use actix_web::web::Bytes;
 
     let config = GovernorConfigBuilder::default()
-        .per_millisecond(90)
+        .milliseconds_per_request(90)
         .burst_size(2)
         .permissive(true)
         .finish()
