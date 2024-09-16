@@ -66,10 +66,10 @@
 //! Instead of using the configuration builder you can use predefined presets.
 //!
 //! + [`GovernorConfig::default()`]: The default configuration which is suitable for most services.
-//! Allows bursts with up to eight requests and replenishes one element after 500ms, based on peer IP.
+//!   Allows bursts with up to eight requests and replenishes one element after 500ms, based on peer IP.
 //!
 //! + [`GovernorConfig::secure()`]: A default configuration for security related services.
-//! Allows bursts with up to two requests and replenishes one element after four seconds, based on peer IP.
+//!   Allows bursts with up to two requests and replenishes one element after four seconds, based on peer IP.
 //!
 //! For example the secure configuration can be used as a short version of this code:
 //!
