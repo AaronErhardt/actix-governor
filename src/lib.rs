@@ -133,7 +133,7 @@
 //!
 //! # Add x-ratelimit headers
 //!
-//! By default, `x-ratelimit-after` is enabled but if you want to enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining` use [`use_headers`] method
+//! By default, `retry-after` and `x-ratelimit-after` are enabled but if you want to enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining` use [`use_headers`] method
 //!
 //! [`use_headers`]: crate::GovernorConfigBuilder::use_headers()
 //!
@@ -491,12 +491,13 @@ impl<K: KeyExtractor, M: RateLimitingMiddleware<QuantaInstant>> GovernorConfigBu
     }
 
     /// Set x-ratelimit headers to response, the headers is
+    /// - `retry-after`             - Number of seconds in which the API will become available after its rate limit has been exceeded
+    /// - `x-ratelimit-after`       - Number of seconds in which the API will become available after its rate limit has been exceeded
     /// - `x-ratelimit-limit`       - Request limit
     /// - `x-ratelimit-remaining`   - The number of requests left for the time window
-    /// - `x-ratelimit-after`       - Number of seconds in which the API will become available after its rate limit has been exceeded
     /// - `x-ratelimit-whitelisted` - If the request method not in methods, this header will be add it, use [`methods`] to add methods
     ///
-    /// By default `x-ratelimit-after` is enabled, with [`use_headers`] will enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining`
+    /// By default `retry-after` and `x-ratelimit-after` are enabled, with [`use_headers`] will enable `x-ratelimit-limit`, `x-ratelimit-whitelisted` and `x-ratelimit-remaining`
     ///
     /// [`methods`]: crate::GovernorConfigBuilder::methods()
     /// [`use_headers`]: Self::use_headers

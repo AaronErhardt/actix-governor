@@ -94,6 +94,7 @@ where
                             }
 
                             let mut response_builder = actix_web::HttpResponse::TooManyRequests();
+                            response_builder.insert_header(("retry-after", wait_time));
                             response_builder.insert_header(("x-ratelimit-after", wait_time));
                             let response = self
                                 .key_extractor
@@ -298,6 +299,7 @@ where
 
                             let mut response_builder = actix_web::HttpResponse::TooManyRequests();
                             response_builder
+                                .insert_header(("retry-after", wait_time))
                                 .insert_header(("x-ratelimit-after", wait_time))
                                 .insert_header(("x-ratelimit-limit", burst_size))
                                 .insert_header(("x-ratelimit-remaining", 0));

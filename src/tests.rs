@@ -103,6 +103,12 @@ async fn test_server() {
     assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
         test.headers()
+            .get(HeaderName::from_static("retry-after"))
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
             .unwrap(),
         "0"
@@ -127,6 +133,12 @@ async fn test_server() {
         .to_request();
     let test = app.call(req).await.unwrap();
     assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        test.headers()
+            .get(HeaderName::from_static("retry-after"))
+            .unwrap(),
+        "0"
+    );
     assert_eq!(
         test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
@@ -184,6 +196,12 @@ async fn test_server_per_second() {
     assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
         test.headers()
+            .get(HeaderName::from_static("retry-after"))
+            .unwrap(),
+        "0"
+    );
+    assert_eq!(
+        test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
             .unwrap(),
         "0"
@@ -208,6 +226,12 @@ async fn test_server_per_second() {
         .to_request();
     let test = app.call(req).await.unwrap();
     assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        test.headers()
+            .get(HeaderName::from_static("retry-after"))
+            .unwrap(),
+        "0"
+    );
     assert_eq!(
         test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
@@ -264,6 +288,12 @@ async fn test_method_filter() {
         .to_request();
     let test = app.call(req).await.unwrap();
     assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        test.headers()
+            .get(HeaderName::from_static("retry-after"))
+            .unwrap(),
+        "0"
+    );
     assert_eq!(
         test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
@@ -324,6 +354,10 @@ async fn test_server_use_headers() {
     );
     assert!(test
         .headers()
+        .get(HeaderName::from_static("retry-after"))
+        .is_none());
+    assert!(test
+        .headers()
         .get(HeaderName::from_static("x-ratelimit-after"))
         .is_none());
     assert!(test
@@ -352,6 +386,10 @@ async fn test_server_use_headers() {
     );
     assert!(test
         .headers()
+        .get(HeaderName::from_static("retry-after"))
+        .is_none());
+    assert!(test
+        .headers()
         .get(HeaderName::from_static("x-ratelimit-after"))
         .is_none());
     assert!(test
@@ -366,6 +404,12 @@ async fn test_server_use_headers() {
         .to_request();
     let test = app.call(req).await.unwrap();
     assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        test.headers()
+            .get(HeaderName::from_static("retry-after"))
+            .unwrap(),
+        "0"
+    );
     assert_eq!(
         test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
@@ -414,6 +458,10 @@ async fn test_server_use_headers() {
     );
     assert!(test
         .headers()
+        .get(HeaderName::from_static("retry-after"))
+        .is_none());
+    assert!(test
+        .headers()
         .get(HeaderName::from_static("x-ratelimit-after"))
         .is_none());
     assert!(test
@@ -428,6 +476,12 @@ async fn test_server_use_headers() {
         .to_request();
     let test = app.call(req).await.unwrap();
     assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        test.headers()
+            .get(HeaderName::from_static("retry-after"))
+            .unwrap(),
+        "0"
+    );
     assert_eq!(
         test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
@@ -500,6 +554,10 @@ async fn test_method_filter_use_headers() {
     );
     assert!(test
         .headers()
+        .get(HeaderName::from_static("retry-after"))
+        .is_none());
+    assert!(test
+        .headers()
         .get(HeaderName::from_static("x-ratelimit-after"))
         .is_none());
     assert!(test
@@ -528,6 +586,10 @@ async fn test_method_filter_use_headers() {
     );
     assert!(test
         .headers()
+        .get(HeaderName::from_static("retry-after"))
+        .is_none());
+    assert!(test
+        .headers()
         .get(HeaderName::from_static("x-ratelimit-after"))
         .is_none());
     assert!(test
@@ -542,6 +604,12 @@ async fn test_method_filter_use_headers() {
         .to_request();
     let test = app.call(req).await.unwrap();
     assert_eq!(test.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        test.headers()
+            .get(HeaderName::from_static("retry-after"))
+            .unwrap(),
+        "0"
+    );
     assert_eq!(
         test.headers()
             .get(HeaderName::from_static("x-ratelimit-after"))
@@ -586,6 +654,10 @@ async fn test_method_filter_use_headers() {
     assert!(test
         .headers()
         .get(HeaderName::from_static("x-ratelimit-remaining"))
+        .is_none());
+    assert!(test
+        .headers()
+        .get(HeaderName::from_static("retry-after"))
         .is_none());
     assert!(test
         .headers()
@@ -725,6 +797,7 @@ async fn test_key_extraction_whitelisted_key_with_header() {
         );
         assert_eq!(test.headers().get("x-ratelimit-limit"), None);
         assert_eq!(test.headers().get("x-ratelimit-remaining"), None);
+        assert_eq!(test.headers().get("retry-after"), None);
         assert_eq!(test.headers().get("x-ratelimit-after"), None);
     };
     // First request (whitelisted)
@@ -772,6 +845,7 @@ async fn test_key_extraction_unwhitelisted_key_with_header() {
         test.headers().get("x-ratelimit-remaining"),
         Some(&"1".parse().unwrap())
     );
+    assert_eq!(test.headers().get("retry-after"), None);
     assert_eq!(test.headers().get("x-ratelimit-after"), None);
     // Second request (not whitelisted)
     let mut req = test::TestRequest::get().uri("/").to_request();
@@ -790,6 +864,7 @@ async fn test_key_extraction_unwhitelisted_key_with_header() {
         test.headers().get("x-ratelimit-remaining"),
         Some(&"0".parse().unwrap())
     );
+    assert_eq!(test.headers().get("retry-after"), None);
     assert_eq!(test.headers().get("x-ratelimit-after"), None);
     // Third request (not whitelisted)
     let mut req = test::TestRequest::get().uri("/").to_request();
@@ -807,6 +882,10 @@ async fn test_key_extraction_unwhitelisted_key_with_header() {
     assert_eq!(
         test.headers().get("x-ratelimit-remaining"),
         Some(&"0".parse().unwrap())
+    );
+    assert_eq!(
+        test.headers().get("retry-after"),
+        Some(&"2".parse().unwrap())
     );
     assert_eq!(
         test.headers().get("x-ratelimit-after"),
