@@ -62,7 +62,7 @@ async fn index() -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Allow bursts with up to five requests per IP address
+    // Allow bursts with up to five requests per bearer token
     // and replenishes one element every two seconds
     let governor_conf = GovernorConfigBuilder::default()
         .seconds_per_request(2)
