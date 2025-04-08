@@ -95,7 +95,7 @@
 //! - [PeerIpKeyExtractor]: this is the default
 //! - [GlobalKeyExtractor]: uses the same key for all incoming requests
 //!
-//! Check out the [custom_key](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key.rs) example to see how a custom key extractor can be implemented.
+//! Check out the [custom_key](https://github.com/AaronErhardt/actix-governor/blob/main/examples/custom_key_ip.rs) example to see how a custom key extractor can be implemented.
 //!
 //! # Customizing error responses
 //!
