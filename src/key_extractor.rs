@@ -4,6 +4,7 @@ use actix_web::{HttpResponse, HttpResponseBuilder, ResponseError};
 use governor::clock::{Clock, DefaultClock, QuantaInstant};
 use governor::NotUntil;
 
+use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::{hash::Hash, net::IpAddr};
 
@@ -194,6 +195,8 @@ impl<T: Display + Debug> Display for SimpleKeyExtractionError<T> {
         write!(f, "SimpleKeyExtractionError")
     }
 }
+
+impl<T: Display + Debug> Error for SimpleKeyExtractionError<T> {}
 
 impl<T: Display + Debug> ResponseError for SimpleKeyExtractionError<T> {
     fn status_code(&self) -> StatusCode {
