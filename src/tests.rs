@@ -928,9 +928,9 @@ async fn test_forbidden_response_error() {
 
     // First request
     let req = test::TestRequest::get().uri("/").to_request();
-    let err_res = app.call(req).await.unwrap_err();
+    let err_res = app.call(req).await.unwrap();
     assert_eq!(
-        err_res.as_response_error().status_code(),
+        err_res.response().status(),
         StatusCode::FORBIDDEN
     );
 }
@@ -1033,9 +1033,9 @@ async fn test_network_authentication_required_response_error() {
 
     // First request
     let req = test::TestRequest::get().uri("/").to_request();
-    let err_res = app.call(req).await.unwrap_err();
+    let err_res = app.call(req).await.unwrap();
     assert_eq!(
-        err_res.as_response_error().status_code(),
+        err_res.response().status(),
         StatusCode::NETWORK_AUTHENTICATION_REQUIRED
     );
 }
